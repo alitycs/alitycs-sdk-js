@@ -1,0 +1,44 @@
+{
+  "name": "alitycs-sdks",
+  "version": "1.0.0",
+  "description": "JavaScript/TypeScript analytics SDKs for Alitycs Platform",
+  "private": true,
+  "workspaces": [
+    "sdks/*"
+  ],
+  "scripts": {
+    "test:all": "bun run test:core && bun run test:browser && bun run test:snippet",
+    "test:core": "cd sdks/core && bun test",
+    "test:browser": "cd sdks/browser && bun test",
+    "test:snippet": "cd sdks/browser-snippet && bun test",
+    "build:all": "bun run build:core && bun run build:browser && bun run build:snippet",
+    "build:core": "cd sdks/core && bun run build:all",
+    "build:browser": "cd sdks/browser && bun run build:all",
+    "build:snippet": "cd sdks/browser-snippet && bun run build",
+    "lint:all": "bun run lint:core && bun run lint:browser && bun run lint:snippet",
+    "lint:core": "cd sdks/core && bun run lint",
+    "lint:browser": "cd sdks/browser && bun run lint",
+    "lint:snippet": "cd sdks/browser-snippet && bun run lint"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alitycs/alitycs-agents"
+  },
+  "author": "Alitycs Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.0.3",
+    "globals": "^17.4.0",
+    "prettier": "^3.8.1",
+    "typescript-eslint": "^8.56.1"
+  },
+  "lint-staged": {
+    "sdks/core/src/**/*.ts": ["prettier --write", "eslint --fix"],
+    "sdks/core/tests/**/*.ts": ["prettier --write"],
+    "sdks/browser/src/**/*.ts": ["prettier --write", "eslint --fix"],
+    "sdks/browser/tests/**/*.ts": ["prettier --write"],
+    "sdks/browser-snippet/src/**/*.ts": ["prettier --write", "eslint --fix"],
+    "sdks/browser-snippet/tests/**/*.ts": ["prettier --write"]
+  }
+}

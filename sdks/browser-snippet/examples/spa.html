@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alitycs Snippet - SPA Example</title>
+
+  <!-- Alitycs Snippet with auto-tracking disabled for manual control -->
+  <script src="../dist/snippet.min.js"
+          data-api-key="demo_key_spa"
+          data-auto-track="false"
+          data-debug="true"
+          async></script>
+
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .nav {
+      background: #0070f3;
+      padding: 15px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+    }
+    .nav button {
+      background: white;
+      color: #0070f3;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin: 0 5px;
+      font-weight: 600;
+    }
+    .nav button:hover {
+      background: #f0f0f0;
+    }
+    .nav button.active {
+      background: #0051cc;
+      color: white;
+    }
+    .page {
+      display: none;
+      animation: fadeIn 0.3s;
+    }
+    .page.active {
+      display: block;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .metrics {
+      background: #f5f5f5;
+      padding: 20px;
+      border-radius: 6px;
+      margin-top: 20px;
+    }
+    .metric {
+      display: inline-block;
+      margin: 10px 20px;
+    }
+    .metric-value {
+      font-size: 32px;
+      font-weight: bold;
+      color: #0070f3;
+    }
+    .metric-label {
+      font-size: 14px;
+      color: #666;
+    }
+    .log {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 15px;
+      border-radius: 6px;
+      margin-top: 15px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    button.cta {
+      background: #00c853;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 5px;
+      font-weight: 600;
+    }
+    button.cta:hover {
+      background: #00a043;
+    }
+    h1 { color: #0070f3; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <button onclick="navigate('home')" id="nav-home">Home</button>
+    <button onclick="navigate('features')" id="nav-features">Features</button>
+    <button onclick="navigate('pricing')" id="nav-pricing">Pricing</button>
+    <button onclick="navigate('about')" id="nav-about">About</button>
+  </div>
+
+  <!-- Home Page -->
+  <div class="page active" id="page-home">
+    <h1>🏠 Welcome to Alitycs</h1>
+    <p>This is a Single Page Application (SPA) demo showing how to track page views and user interactions.</p>
+    <button class="cta" onclick="trackEvent('hero_cta_clicked')">Get Started</button>
+
+    <div class="metrics">
+      <div class="metric">
+        <div class="metric-value" id="page-views">0</div>
+        <div class="metric-label">Page Views</div>
+      </div>
+      <div class="metric">
+        <div class="metric-value" id="events-tracked">0</div>
+        <div class="metric-label">Events Tracked</div>
+      </div>
+      <div class="metric">
+        <div class="metric-value" id="session-duration">0s</div>
+        <div class="metric-label">Session Duration</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Features Page -->
+  <div class="page" id="page-features">
+    <h1>✨ Features</h1>
+    <ul>
+      <li>Ultra-lightweight (~1KB)</li>
+      <li>Async loading</li>
+      <li>Automatic SPA tracking</li>
+      <li>Zero configuration</li>
+    </ul>
+    <button class="cta" onclick="trackEvent('feature_interest', { feature: 'lightweight' })">
+      Learn More
+    </button>
+  </div>
+
+  <!-- Pricing Page -->
+  <div class="page" id="page-pricing">
+    <h1>💰 Pricing</h1>
+    <p>Simple, transparent pricing for everyone.</p>
+    <button class="cta" onclick="trackEvent('pricing_cta_clicked', { plan: 'starter' })">
+      Choose Starter
+    </button>
+    <button class="cta" onclick="trackEvent('pricing_cta_clicked', { plan: 'pro' })">
+      Choose Pro
+    </button>
+  </div>
+
+  <!-- About Page -->
+  <div class="page" id="page-about">
+    <h1>📖 About</h1>
+    <p>Alitycs helps you understand your users with privacy-first analytics.</p>
+  </div>
+
+  <div class="log" id="eventLog">
+    Analytics events will appear here...
+  </div>
+
+  <script>
+    // State
+    let currentPage = 'home';
+    let pageViews = 0;
+    let eventsTracked = 0;
+    let sessionStart = Date.now();
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      // Track initial page view
+      trackPageView('home');
+      updateMetrics();
+      setInterval(updateMetrics, 1000);
+    });
+
+    // Navigation
+    function navigate(page) {
+      if (currentPage === page) return;
+
+      // Hide all pages
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+
+      // Show selected page
+      document.getElementById('page-' + page).classList.add('active');
+      document.getElementById('nav-' + page).classList.add('active');
+
+      // Track page view
+      trackPageView(page);
+      currentPage = page;
+
+      // Update URL (without page reload)
+      history.pushState({ page }, '', '#' + page);
+    }
+
+    // Track page view
+    function trackPageView(page) {
+      alitycs('page', page.charAt(0).toUpperCase() + page.slice(1), {
+        path: '/' + page,
+        hash: '#' + page,
+        referrer: currentPage
+      });
+
+      pageViews++;
+      eventsTracked++;
+      logEvent('page', page);
+      updateMetrics();
+    }
+
+    // Track event
+    function trackEvent(eventName, properties = {}) {
+      alitycs('track', eventName, {
+        ...properties,
+        page: currentPage,
+        timestamp: Date.now()
+      });
+
+      eventsTracked++;
+      logEvent('track', eventName, properties);
+      updateMetrics();
+    }
+
+    // Update metrics
+    function updateMetrics() {
+      document.getElementById('page-views').textContent = pageViews;
+      document.getElementById('events-tracked').textContent = eventsTracked;
+      const duration = Math.floor((Date.now() - sessionStart) / 1000);
+      document.getElementById('session-duration').textContent = duration + 's';
+    }
+
+    // Logging
+    function logEvent(method, ...args) {
+      const log = document.getElementById('eventLog');
+      const timestamp = new Date().toLocaleTimeString();
+      const entry = document.createElement('div');
+      entry.style.marginBottom = '5px';
+      entry.textContent = `[${timestamp}] ${method}: ${JSON.stringify(args)}`;
+      log.appendChild(entry);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    // Handle browser back/forward
+    window.addEventListener('popstate', (event) => {
+      if (event.state && event.state.page) {
+        navigate(event.state.page);
+      }
+    });
+
+    // Log snippet status
+    setTimeout(() => {
+      logEvent('info', 'Alitycs loaded: ' + window.alitycs.loaded);
+    }, 100);
+  </script>
+</body>
+</html>

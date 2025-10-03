@@ -1,0 +1,129 @@
+{
+  "title": "Alitycs Analytics Event Schema",
+  "description": "Unified event structure for all Alitycs Analytics SDKs",
+  "version": "0.3.0",
+  "definitions": {
+    "AnalyticsEvent": {
+      "type": "object",
+      "required": ["eventId", "event", "eventType", "timestamp", "properties", "context"],
+      "properties": {
+        "eventId": {
+          "type": "string",
+          "description": "Unique identifier for the event"
+        },
+        "event": {
+          "type": "string",
+          "description": "Event name/type"
+        },
+        "eventType": {
+          "type": "string",
+          "enum": ["track", "identify", "page"],
+          "description": "Category of the event"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Identified user ID"
+        },
+        "anonymousId": {
+          "type": "string",
+          "description": "Anonymous user identifier"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "Session identifier"
+        },
+        "timestamp": {
+          "type": "integer",
+          "description": "Unix timestamp in milliseconds"
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Event-specific properties (all values as strings)"
+        },
+        "context": {
+          "$ref": "#/definitions/EventContext"
+        }
+      }
+    },
+    "EventContext": {
+      "type": "object",
+      "properties": {
+        "locale": {
+          "type": "string",
+          "description": "User locale (e.g., en-US)"
+        },
+        "timezone": {
+          "type": "string",
+          "description": "User timezone"
+        },
+        "userAgent": {
+          "type": "string",
+          "description": "Browser user agent string"
+        },
+        "url": {
+          "type": "string",
+          "description": "Current page URL"
+        },
+        "referrer": {
+          "type": "string",
+          "description": "Page referrer (from ?referrer= or ?ref= or document.referrer)"
+        },
+        "screen": {
+          "type": "object",
+          "properties": {
+            "width": {
+              "type": "string"
+            },
+            "height": {
+              "type": "string"
+            }
+          }
+        },
+        "sdkVersion": {
+          "type": "string",
+          "description": "SDK version (e.g., 2.0.0)"
+        },
+        "sdkLanguage": {
+          "type": "string",
+          "description": "SDK language (e.g., typescript)"
+        },
+        "utmSource": {
+          "type": "string",
+          "description": "UTM source parameter"
+        },
+        "utmMedium": {
+          "type": "string",
+          "description": "UTM medium parameter"
+        },
+        "utmCampaign": {
+          "type": "string",
+          "description": "UTM campaign parameter"
+        }
+      },
+      "additionalProperties": true
+    },
+    "BatchPayload": {
+      "type": "object",
+      "required": ["events", "batchId", "sentAt"],
+      "properties": {
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AnalyticsEvent"
+          }
+        },
+        "batchId": {
+          "type": "string",
+          "description": "Unique batch identifier"
+        },
+        "sentAt": {
+          "type": "integer",
+          "description": "Unix timestamp when batch was sent"
+        }
+      }
+    }
+  }
+}

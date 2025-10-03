@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alitycs Snippet - Custom Configuration</title>
+
+  <!-- Alitycs Snippet with custom configuration -->
+  <script src="../dist/snippet.min.js"
+          data-api-key="custom_key_456"
+          data-sdk-url="https://cdn.alitycs.com/sdk@2.0.0/browser.min.js"
+          data-endpoint="https://api.alitycs.com/v1/events"
+          data-auto-track="false"
+          data-debug="true"
+          async></script>
+
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 900px;
+      margin: 50px auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    h1 { color: #0070f3; }
+    .config-section {
+      background: #f5f5f5;
+      padding: 20px;
+      border-radius: 6px;
+      margin: 20px 0;
+    }
+    .config-item {
+      margin: 10px 0;
+      font-family: 'Courier New', monospace;
+    }
+    .config-label {
+      font-weight: bold;
+      color: #0070f3;
+    }
+    .code {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 15px;
+      border-radius: 6px;
+      margin: 15px 0;
+      overflow-x: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+    }
+    button {
+      background: #0070f3;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 5px;
+    }
+    button:hover {
+      background: #0051cc;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+    }
+    th, td {
+      text-align: left;
+      padding: 12px;
+      border-bottom: 1px solid #ddd;
+    }
+    th {
+      background: #0070f3;
+      color: white;
+    }
+    .status {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .status-success { background: #e8f5e9; color: #2e7d32; }
+    .status-pending { background: #fff3e0; color: #f57c00; }
+    .status-error { background: #ffebee; color: #c62828; }
+  </style>
+</head>
+<body>
+  <h1>⚙️ Custom Configuration Example</h1>
+
+  <p>
+    This example demonstrates advanced configuration options for the Alitycs snippet,
+    including custom endpoints, SDK URLs, and manual initialization.
+  </p>
+
+  <div class="config-section">
+    <h2>📋 Current Configuration</h2>
+    <div class="config-item">
+      <span class="config-label">API Key:</span>
+      <span id="config-apiKey">Loading...</span>
+    </div>
+    <div class="config-item">
+      <span class="config-label">SDK URL:</span>
+      <span id="config-sdkUrl">Loading...</span>
+    </div>
+    <div class="config-item">
+      <span class="config-label">Endpoint:</span>
+      <span id="config-endpoint">Loading...</span>
+    </div>
+    <div class="config-item">
+      <span class="config-label">Auto Track:</span>
+      <span id="config-autoTrack">Loading...</span>
+    </div>
+    <div class="config-item">
+      <span class="config-label">Debug Mode:</span>
+      <span id="config-debug">Loading...</span>
+    </div>
+    <div class="config-item">
+      <span class="config-label">SDK Loaded:</span>
+      <span id="config-loaded" class="status status-pending">Pending</span>
+    </div>
+  </div>
+
+  <h2>🔧 Configuration Options</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Attribute</th>
+        <th>Description</th>
+        <th>Default</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>data-api-key</code></td>
+        <td>Your Alitycs API key (required)</td>
+        <td>-</td>
+      </tr>
+      <tr>
+        <td><code>data-sdk-url</code></td>
+        <td>Custom SDK URL for self-hosting</td>
+        <td>cdn.alitycs.com/sdk@2/browser.min.js</td>
+      </tr>
+      <tr>
+        <td><code>data-endpoint</code></td>
+        <td>Custom API endpoint</td>
+        <td>api.alitycs.com/v1/events</td>
+      </tr>
+      <tr>
+        <td><code>data-auto-track</code></td>
+        <td>Auto-track initial page view</td>
+        <td>true</td>
+      </tr>
+      <tr>
+        <td><code>data-debug</code></td>
+        <td>Enable debug logging</td>
+        <td>false</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>💻 Example Configurations</h2>
+
+  <h3>Production (Minimal):</h3>
+  <div class="code">
+&lt;script src="https://cdn.alitycs.com/snippet.min.js"
+        data-api-key="your_production_key"
+        async&gt;&lt;/script&gt;
+  </div>
+
+  <h3>Self-Hosted:</h3>
+  <div class="code">
+&lt;script src="https://your-domain.com/snippet.min.js"
+        data-api-key="your_key"
+        data-sdk-url="https://your-domain.com/sdk.min.js"
+        data-endpoint="https://your-api.com/events"
+        async&gt;&lt;/script&gt;
+  </div>
+
+  <h3>Development (Debug Mode):</h3>
+  <div class="code">
+&lt;script src="../dist/snippet.min.js"
+        data-api-key="dev_key"
+        data-debug="true"
+        async&gt;&lt;/script&gt;
+  </div>
+
+  <h3>Manual Page Tracking (SPA):</h3>
+  <div class="code">
+&lt;script src="https://cdn.alitycs.com/snippet.min.js"
+        data-api-key="your_key"
+        data-auto-track="false"
+        async&gt;&lt;/script&gt;
+  </div>
+
+  <h2>🎯 Test Actions</h2>
+  <button onclick="testTracking()">Test Event Tracking</button>
+  <button onclick="testIdentify()">Test User Identification</button>
+  <button onclick="testPageView()">Test Page View</button>
+  <button onclick="checkStatus()">Check SDK Status</button>
+
+  <script>
+    // Display current configuration
+    function displayConfig() {
+      const config = window.alitycs._config;
+
+      document.getElementById('config-apiKey').textContent = config.apiKey || 'Not set';
+      document.getElementById('config-sdkUrl').textContent = config.sdkUrl || 'Default';
+      document.getElementById('config-endpoint').textContent = config.endpoint || 'Default';
+      document.getElementById('config-autoTrack').textContent = config.autoTrack ? 'Yes' : 'No';
+      document.getElementById('config-debug').textContent = config.debug ? 'Yes' : 'No';
+
+      updateLoadedStatus();
+    }
+
+    function updateLoadedStatus() {
+      const loaded = window.alitycs.loaded;
+      const statusEl = document.getElementById('config-loaded');
+
+      if (loaded) {
+        statusEl.textContent = 'Loaded';
+        statusEl.className = 'status status-success';
+      } else {
+        statusEl.textContent = 'Loading...';
+        statusEl.className = 'status status-pending';
+      }
+    }
+
+    // Test functions
+    function testTracking() {
+      alitycs('track', 'custom_test_event', {
+        source: 'custom_config_page',
+        timestamp: Date.now(),
+        testData: { foo: 'bar', count: 42 }
+      });
+      console.log('✅ Event tracked');
+      alert('Event tracked! Check console for details.');
+    }
+
+    function testIdentify() {
+      alitycs('identify', 'test_user_' + Math.floor(Math.random() * 1000), {
+        email: 'test@example.com',
+        plan: 'enterprise',
+        features: ['custom-endpoint', 'self-hosted']
+      });
+      console.log('✅ User identified');
+      alert('User identified! Check console for details.');
+    }
+
+    function testPageView() {
+      alitycs('page', 'Custom Config Demo', {
+        path: '/examples/custom-config',
+        customProp: 'test'
+      });
+      console.log('✅ Page view tracked');
+      alert('Page view tracked! Check console for details.');
+    }
+
+    function checkStatus() {
+      const status = {
+        loaded: window.alitycs.loaded,
+        queueSize: window.alitycs._queue.length,
+        config: window.alitycs._config
+      };
+      console.log('📊 SDK Status:', status);
+      alert(`SDK Loaded: ${status.loaded}\nQueue Size: ${status.queueSize}\n\nCheck console for full details.`);
+      updateLoadedStatus();
+    }
+
+    // Initialize display
+    setTimeout(displayConfig, 100);
+
+    // Update loaded status periodically
+    setInterval(updateLoadedStatus, 1000);
+
+    // Log configuration on load
+    console.log('🔧 Alitycs Configuration:', window.alitycs._config);
+    console.log('📋 Initial Queue:', window.alitycs._queue);
+  </script>
+</body>
+</html>

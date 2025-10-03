@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+bun.lock
+
+# Build output
+sdks/*/dist/
+sdks/*/__pycache__/
+sdks/*/target/
+sdks/*/build/
+sdks/*/.pytest_cache/
+sdks/*/venv/
+sdks/*/.venv/
+sdks/*/vendor/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Agents
+.claude
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Test coverage
+coverage/
+*.lcov
+sdks/*/coverage/
+
+# Logs
+*.log
+sdks/*/*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# OS files
+Thumbs.db

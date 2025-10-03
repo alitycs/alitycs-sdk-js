@@ -1,0 +1,62 @@
+{
+  "name": "@alitycs/core",
+  "version": "1.0.0",
+  "description": "Universal analytics SDK core — event tracking, batching, sessions, HTTP transport",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "bun build src/index.ts --outfile=dist/index.esm.js --target=node --format=esm",
+    "build:cjs": "bun build src/index.ts --outfile=dist/index.js --target=node --format=cjs",
+    "build:types": "tsc -p tsconfig.build.json",
+    "build:all": "bun run build && bun run build:cjs && bun run build:types",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "test:unit": "bun test tests/unit",
+    "test:integration": "bun test tests/integration",
+    "dev": "bun run --hot src/index.ts",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src/**/*.ts tests/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts tests/**/*.ts --fix",
+    "format": "prettier --write src/**/*.ts tests/**/*.ts",
+    "format:check": "prettier --check src/**/*.ts tests/**/*.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.3.5",
+    "bun-types": "^1.3.10",
+    "eslint": "^10.0.3",
+    "globals": "^17.4.0",
+    "prettier": "^3.8.1",
+    "typescript-eslint": "^8.56.1",
+    "typescript": "^5.9.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alitycs/alitycs-agents",
+    "directory": "sdks/core"
+  },
+  "keywords": [
+    "analytics",
+    "tracking",
+    "typescript",
+    "javascript",
+    "sdk",
+    "events",
+    "universal"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0",
+    "bun": ">=1.0.0"
+  }
+}

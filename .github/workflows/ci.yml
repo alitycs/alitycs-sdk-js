@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  core-sdk:
+    name: Core SDK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: bun run type-check
+      - run: bun run lint
+      - run: bun run build:all
+      - run: bun test
+
+  browser-sdk:
+    name: Browser SDK
+    needs: core-sdk
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/browser
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: bun run type-check
+      - run: bun run lint
+      - run: bun run build:all
+      - run: bun test
+
+  browser-snippet:
+    name: Browser Snippet
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/browser-snippet
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: bun run type-check
+      - run: bun run lint
+      - run: bun run build
+      - run: bun test

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alitycs Snippet - Basic Example</title>
+
+  <!-- Alitycs Snippet -->
+  <script src="../dist/snippet.min.js"
+          data-api-key="demo_key_123"
+          data-debug="true"
+          async></script>
+
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    button {
+      background: #0070f3;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 5px;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #0051cc;
+    }
+    .code {
+      background: #f5f5f5;
+      padding: 15px;
+      border-radius: 6px;
+      margin: 15px 0;
+      overflow-x: auto;
+    }
+    .log {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 15px;
+      border-radius: 6px;
+      margin: 15px 0;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    h1 { color: #0070f3; }
+    h2 { margin-top: 30px; }
+  </style>
+</head>
+<body>
+  <h1>🚀 Alitycs Browser Snippet - Basic Example</h1>
+
+  <p>
+    This page demonstrates the ultra-lightweight Alitycs snippet in action.
+    The snippet is loaded asynchronously and queues all calls until the full SDK is loaded.
+  </p>
+
+  <h2>✨ Try It Out</h2>
+
+  <button onclick="trackButtonClick()">
+    Track Button Click
+  </button>
+
+  <button onclick="trackWithProperties()">
+    Track with Properties
+  </button>
+
+  <button onclick="identifyUser()">
+    Identify User
+  </button>
+
+  <button onclick="trackPageView()">
+    Track Page View
+  </button>
+
+  <h2>📊 Event Log</h2>
+  <div class="log" id="eventLog">
+    Events will appear here...
+  </div>
+
+  <h2>💻 Code Examples</h2>
+
+  <h3>HTML Integration:</h3>
+  <div class="code">
+&lt;script src="https://cdn.alitycs.com/snippet.min.js"
+        data-api-key="YOUR_KEY"
+        async&gt;&lt;/script&gt;
+  </div>
+
+  <h3>Track an Event:</h3>
+  <div class="code">
+alitycs('track', 'button_clicked', {
+  button: 'signup',
+  page: 'homepage'
+});
+  </div>
+
+  <h3>Identify a User:</h3>
+  <div class="code">
+alitycs('identify', 'user_123', {
+  email: 'user@example.com',
+  plan: 'premium'
+});
+  </div>
+
+  <h3>Using Helper Methods:</h3>
+  <div class="code">
+// All these are equivalent:
+alitycs('track', 'event_name', { prop: 'value' });
+alitycs.track('event_name', { prop: 'value' });
+
+// Chainable:
+alitycs.track('event1').track('event2').identify('user_id');
+  </div>
+
+  <script>
+    // Logging helper
+    function logEvent(method, ...args) {
+      const log = document.getElementById('eventLog');
+      const timestamp = new Date().toLocaleTimeString();
+      const entry = document.createElement('div');
+      entry.style.marginBottom = '5px';
+      entry.textContent = `[${timestamp}] alitycs('${method}', ${JSON.stringify(args).slice(1, -1)})`;
+      log.appendChild(entry);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    // Example functions
+    function trackButtonClick() {
+      alitycs('track', 'button_clicked', {
+        button: 'track_button',
+        timestamp: Date.now()
+      });
+      logEvent('track', 'button_clicked', { button: 'track_button' });
+    }
+
+    function trackWithProperties() {
+      alitycs.track('custom_event', {
+        category: 'engagement',
+        value: 42,
+        label: 'test'
+      });
+      logEvent('track', 'custom_event', { category: 'engagement', value: 42 });
+    }
+
+    function identifyUser() {
+      alitycs.identify('user_' + Math.floor(Math.random() * 1000), {
+        email: 'demo@example.com',
+        plan: 'premium'
+      });
+      logEvent('identify', 'user_xxx', { email: 'demo@example.com' });
+    }
+
+    function trackPageView() {
+      alitycs.page('Basic Example', {
+        path: window.location.pathname,
+        referrer: document.referrer
+      });
+      logEvent('page', 'Basic Example', { path: window.location.pathname });
+    }
+
+    // Log snippet status
+    setTimeout(() => {
+      console.log('Alitycs loaded:', window.alitycs.loaded);
+      console.log('Queue size:', window.alitycs._queue.length);
+      logEvent('info', 'Snippet initialized, queue size: ' + window.alitycs._queue.length);
+    }, 100);
+  </script>
+</body>
+</html>
