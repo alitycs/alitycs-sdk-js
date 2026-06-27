@@ -61,9 +61,9 @@ function initializeFromSnippet(): void {
     const win = window as unknown as Record<string, unknown>;
     const api: Record<string, unknown> = Object.assign(
       function (method: string, ...args: unknown[]) {
-        if (method === 'track') sdk.track(args[0] as string, args[1] as Record<string, unknown>);
-        else if (method === 'identify') sdk.identify(args[0] as string, args[1] as Record<string, unknown>);
-        else if (method === 'page') sdk.page(args[0] as string, args[1] as Record<string, unknown>);
+        if (method === 'track') sdk.track(args[0] as string, args[1] as Record<string, unknown>, args[2] as any);
+        else if (method === 'identify') sdk.identify(args[0] as string, args[1] as Record<string, unknown>, args[2] as any);
+        else if (method === 'page') sdk.page(args[0] as string, args[1] as Record<string, unknown>, args[2] as any);
         else if (method === 'setGlobalProperties') sdk.setGlobalProperties(args[0] as Record<string, unknown>);
         else if (method === 'removeGlobalProperties') sdk.removeGlobalProperties(args[0] as string[]);
         else if (method === 'clearGlobalProperties') sdk.clearGlobalProperties();
@@ -72,16 +72,16 @@ function initializeFromSnippet(): void {
       {} as Record<string, unknown>
     );
 
-    api.track = (event: string, properties?: Record<string, unknown>) => {
-      sdk.track(event, properties);
+    api.track = (event: string, properties?: Record<string, unknown>, options?: any) => {
+      sdk.track(event, properties, options);
       return win.alitycs;
     };
-    api.identify = (userId: string, traits?: Record<string, unknown>) => {
-      sdk.identify(userId, traits);
+    api.identify = (userId: string, traits?: Record<string, unknown>, options?: any) => {
+      sdk.identify(userId, traits, options);
       return win.alitycs;
     };
-    api.page = (name?: string, properties?: Record<string, unknown>) => {
-      sdk.page(name, properties);
+    api.page = (name?: string, properties?: Record<string, unknown>, options?: any) => {
+      sdk.page(name, properties, options);
       return win.alitycs;
     };
     api.flush = () => sdk.flush();

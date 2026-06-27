@@ -420,6 +420,97 @@ describe('Alitycs', () => {
     });
   });
 
+  describe('Event Deduplication', () => {
+    test('track() with dedupeKey drops duplicate within window', async () => {
+      const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+      sdk.track('search', { query: 'rome' }, { dedupeKey: 'search:rome' });
+      sdk.track('search', { query: 'rome' }, { dedupeKey: 'search:rome' });
+
+      await sdk.flush();
+
+      expect(sentPayloads.length).toBe(1);
+      expect(sentPayloads[0].events.length).toBe(1);
+
+      await sdk.shutdown();
+    });
+
+    test('track() with dedupeKey: event payload contains dedupeKey field', async () => {
+      const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+      sdk.track('save', { id: '1' }, { dedupeKey: 'save:1' });
+
+      await sdk.flush();
+
+      const event = sentPayloads[0].events[0];
+      expect(event.dedupeKey).toBe('save:1');
+
+      await sdk.shutdown();
+    });
+
+    test('identify() accepts EventOptions', async () => {
+      const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+      sdk.identify('user-1', { plan: 'pro' }, { dedupeKey: 'id:user-1' });
+      sdk.identify('user-1', { plan: 'pro' }, { dedupeKey: 'id:user-1' });
+
+      await sdk.flush();
+
+      expect(sentPayloads.length).toBe(1);
+      expect(sentPayloads[0].events.length).toBe(1);
+
+      await sdk.shutdown();
+    });
+
+    test('page() accepts EventOptions', async () => {
+      const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+      sdk.page('Home', {}, { dedupeKey: 'page:home' });
+      sdk.page('Home', {}, { dedupeKey: 'page:home' });
+
+      await sdk.flush();
+
+      expect(sentPayloads.length).toBe(1);
+      expect(sentPayloads[0].events.length).toBe(1);
+
+      await sdk.shutdown();
+    });
+
+    test('track() without options — no regression', async () => {
+      const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+      sdk.track('click', { color: 'red' });
+      sdk.track('click', { color: 'red' });
+
+      await sdk.flush();
+
+      expect(sentPayloads.length).toBe(1);
+      expect(sentPayloads[0].events.length).toBe(2);
+
+      await sdk.shutdown();
+    });
+
+    test('module-level track() passes options through', async () => {
+      const {
+        init: moduleInit,
+        track: moduleTrack,
+        flush: moduleFlush,
+        shutdown: moduleShutdown,
+      } = await import('../../src/index');
+      moduleInit({ apiKey: 'test-key', flushSize: 100 });
+
+      moduleTrack('search', { q: 'a' }, { dedupeKey: 'search:a' });
+      moduleTrack('search', { q: 'a' }, { dedupeKey: 'search:a' });
+
+      await moduleFlush();
+
+      expect(sentPayloads.length).toBe(1);
+      expect(sentPayloads[0].events.length).toBe(1);
+
+      await moduleShutdown();
+    });
+  });
+
   test('multiple instances are independent', async () => {
     const payloadsA: BatchPayload[] = [];
     const payloadsB: BatchPayload[] = [];

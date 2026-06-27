@@ -113,6 +113,35 @@ describe('BrowserAlitycs', () => {
     await sdk.shutdown();
   });
 
+  test('track() with dedupeKey drops duplicate', async () => {
+    const sdk = BrowserAlitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+    sdk.track('save', { id: '1' }, { dedupeKey: 'save:1' });
+    sdk.track('save', { id: '1' }, { dedupeKey: 'save:1' });
+
+    await sdk.flush();
+
+    expect(sentPayloads.length).toBe(1);
+    expect(sentPayloads[0].events.length).toBe(1);
+    expect(sentPayloads[0].events[0].dedupeKey).toBe('save:1');
+
+    await sdk.shutdown();
+  });
+
+  test('track() without options — no regression', async () => {
+    const sdk = BrowserAlitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+    sdk.track('click', { color: 'red' });
+    sdk.track('click', { color: 'red' });
+
+    await sdk.flush();
+
+    expect(sentPayloads.length).toBe(1);
+    expect(sentPayloads[0].events.length).toBe(2);
+
+    await sdk.shutdown();
+  });
+
   test('shutdown flushes remaining events', async () => {
     const sdk = BrowserAlitycs.init({ apiKey: 'test-key', flushSize: 100 });
 

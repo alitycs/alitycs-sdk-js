@@ -277,6 +277,77 @@ describe('initializeFromSnippet', () => {
     expect(pageEvents[0].event).toBe('Home');
   });
 
+  test('window.alitycs.track forwards options (dedupeKey)', async () => {
+    const { initializeFromSnippet } = await import('../../src/browser');
+
+    (globalThis as any).window.alitycs = {
+      _config: { apiKey: 'test-key' },
+      _queue: [],
+      loaded: false,
+    };
+
+    initializeFromSnippet();
+
+    const api = (globalThis as any).window.alitycs;
+    api.track('search', { q: 'a' }, { dedupeKey: 'search:a' });
+    api.track('search', { q: 'a' }, { dedupeKey: 'search:a' });
+
+    const sdk = (globalThis as any).window.AlitycsSDK;
+    await sdk.flush();
+
+    const allEvents = sentPayloads.flatMap((p: BatchPayload) => p.events);
+    // Second call should be deduped
+    const searchEvents = allEvents.filter((e: any) => e.event === 'search');
+    expect(searchEvents.length).toBe(1);
+    expect(searchEvents[0].dedupeKey).toBe('search:a');
+  });
+
+  test('generic dispatch forwards options (dedupeKey)', async () => {
+    const { initializeFromSnippet } = await import('../../src/browser');
+
+    (globalThis as any).window.alitycs = {
+      _config: { apiKey: 'test-key' },
+      _queue: [],
+      loaded: false,
+    };
+
+    initializeFromSnippet();
+
+    const api = (globalThis as any).window.alitycs;
+    api('track', 'search', { q: 'b' }, { dedupeKey: 'search:b' });
+    api('track', 'search', { q: 'b' }, { dedupeKey: 'search:b' });
+
+    const sdk = (globalThis as any).window.AlitycsSDK;
+    await sdk.flush();
+
+    const allEvents = sentPayloads.flatMap((p: BatchPayload) => p.events);
+    const searchEvents = allEvents.filter((e: any) => e.event === 'search');
+    expect(searchEvents.length).toBe(1);
+  });
+
+  test('queue replay preserves options through queue→SDK path', async () => {
+    const { initializeFromSnippet } = await import('../../src/browser');
+
+    (globalThis as any).window.alitycs = {
+      _config: { apiKey: 'test-key' },
+      _queue: [
+        { method: 'track', args: ['click', { btn: '1' }, { dedupeKey: 'click:1' }], timestamp: Date.now() },
+        { method: 'track', args: ['click', { btn: '1' }, { dedupeKey: 'click:1' }], timestamp: Date.now() },
+      ],
+      loaded: false,
+    };
+
+    initializeFromSnippet();
+
+    const sdk = (globalThis as any).window.AlitycsSDK;
+    await sdk.flush();
+
+    const allEvents = sentPayloads.flatMap((p: BatchPayload) => p.events);
+    const clickEvents = allEvents.filter((e: any) => e.event === 'click');
+    expect(clickEvents.length).toBe(1);
+    expect(clickEvents[0].dedupeKey).toBe('click:1');
+  });
+
   test('after init, window.alitycs methods work', async () => {
     const { initializeFromSnippet } = await import('../../src/browser');
 

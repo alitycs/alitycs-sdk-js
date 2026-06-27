@@ -38,6 +38,11 @@ export interface EventContext {
   utmCampaign?: string;
 }
 
+export interface EventOptions {
+  dedupeKey?: string;
+  dedupeWindowMs?: number; // default 500
+}
+
 export interface AnalyticsEvent {
   eventId: string;
   event: string;
@@ -48,6 +53,7 @@ export interface AnalyticsEvent {
   timestamp: number;
   properties: Record<string, string>;
   context: EventContext;
+  dedupeKey?: string;
 }
 
 export interface BatchPayload {

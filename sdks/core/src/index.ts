@@ -1,4 +1,4 @@
-import type { AlitycsConfig, ResolvedConfig, AnalyticsEvent, BatchPayload, EventType } from './types';
+import type { AlitycsConfig, ResolvedConfig, AnalyticsEvent, BatchPayload, EventType, EventOptions } from './types';
 import { generateId, serializeProperties } from './utils';
 import { HttpTransport } from './transport';
 import { BatchManager } from './batch-manager';
@@ -6,6 +6,7 @@ import { SessionManager } from './session';
 import { collectContext } from './context';
 import { createLogger } from './logger';
 import type { Logger } from './logger';
+import { EventDeduplicator } from './dedup';
 
 export const DEFAULTS: Omit<ResolvedConfig, 'apiKey'> = {
   endpoint: 'https://api.alitycs.com/events',
@@ -27,6 +28,7 @@ export class Alitycs {
   private userId: string | undefined;
   private inFlight = new Set<Promise<void>>();
   private globalProperties: Record<string, unknown> = {};
+  private deduplicator = new EventDeduplicator();
 
   protected constructor(config: ResolvedConfig) {
     this.config = config;
@@ -53,24 +55,24 @@ export class Alitycs {
     return new Alitycs(resolved);
   }
 
-  track(eventName: string, properties?: Record<string, unknown>): void {
+  track(eventName: string, properties?: Record<string, unknown>, options?: EventOptions): void {
     if (!eventName) return;
-    this.enqueue('track', eventName, properties);
+    this.enqueue('track', eventName, properties, options);
   }
 
-  identify(userId: string, traits?: Record<string, unknown>): void {
+  identify(userId: string, traits?: Record<string, unknown>, options?: EventOptions): void {
     if (!userId) return;
     this.userId = userId;
     this.sessionManager.setUserId(userId);
-    this.enqueue('identify', 'identify', { userId, ...traits });
+    this.enqueue('identify', 'identify', { userId, ...traits }, options);
   }
 
-  page(name?: string, properties?: Record<string, unknown>): void {
+  page(name?: string, properties?: Record<string, unknown>, options?: EventOptions): void {
     const pageName = name || 'page_view';
     this.enqueue('page', pageName, {
       ...properties,
       title: typeof document !== 'undefined' ? document.title : undefined,
-    });
+    }, options);
   }
 
   setGlobalProperties(properties: Record<string, unknown>): void {
@@ -106,6 +108,7 @@ export class Alitycs {
     } else {
       await Promise.all(this.inFlight);
     }
+    this.deduplicator.clear();
   }
 
   get pending(): number {
@@ -115,7 +118,11 @@ export class Alitycs {
     return this.inFlight.size;
   }
 
-  private enqueue(type: EventType, name: string, properties?: Record<string, unknown>): void {
+  private enqueue(type: EventType, name: string, properties?: Record<string, unknown>, options?: EventOptions): void {
+    if (options?.dedupeKey && this.deduplicator.isDuplicate(options.dedupeKey, options.dedupeWindowMs ?? 500)) {
+      return;
+    }
+
     this.sessionManager.touch();
     const session = this.sessionManager.getSession();
 
@@ -129,6 +136,7 @@ export class Alitycs {
       timestamp: Date.now(),
       properties: serializeProperties({ ...this.globalProperties, ...(properties ?? {}) }),
       context: collectContext(),
+      dedupeKey: options?.dedupeKey,
     };
 
     if (this.batchManager) {
@@ -161,16 +169,16 @@ export function init(config: AlitycsConfig): Alitycs {
   return defaultInstance;
 }
 
-export function track(eventName: string, properties?: Record<string, unknown>): void {
-  defaultInstance?.track(eventName, properties);
+export function track(eventName: string, properties?: Record<string, unknown>, options?: EventOptions): void {
+  defaultInstance?.track(eventName, properties, options);
 }
 
-export function identify(userId: string, traits?: Record<string, unknown>): void {
-  defaultInstance?.identify(userId, traits);
+export function identify(userId: string, traits?: Record<string, unknown>, options?: EventOptions): void {
+  defaultInstance?.identify(userId, traits, options);
 }
 
-export function page(name?: string, properties?: Record<string, unknown>): void {
-  defaultInstance?.page(name, properties);
+export function page(name?: string, properties?: Record<string, unknown>, options?: EventOptions): void {
+  defaultInstance?.page(name, properties, options);
 }
 
 export async function flush(): Promise<void> {
@@ -207,6 +215,7 @@ export type {
   EventContext,
   BatchPayload,
   SessionData,
+  EventOptions,
 } from './types';
 export { createLogger } from './logger';
 export type { Logger } from './logger';

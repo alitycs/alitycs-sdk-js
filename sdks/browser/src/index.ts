@@ -8,6 +8,7 @@ import {
   type EventContext,
   type BatchPayload,
   type SessionData,
+  type EventOptions,
 } from '@alitycs/core';
 import type { BrowserConfig } from './types';
 import { AutoCapture } from './auto-capture';
@@ -64,16 +65,16 @@ export function init(config: BrowserConfig): BrowserAlitycs {
   return defaultInstance;
 }
 
-export function track(eventName: string, properties?: Record<string, unknown>): void {
-  defaultInstance?.track(eventName, properties);
+export function track(eventName: string, properties?: Record<string, unknown>, options?: EventOptions): void {
+  defaultInstance?.track(eventName, properties, options);
 }
 
-export function identify(userId: string, traits?: Record<string, unknown>): void {
-  defaultInstance?.identify(userId, traits);
+export function identify(userId: string, traits?: Record<string, unknown>, options?: EventOptions): void {
+  defaultInstance?.identify(userId, traits, options);
 }
 
-export function page(name?: string, properties?: Record<string, unknown>): void {
-  defaultInstance?.page(name, properties);
+export function page(name?: string, properties?: Record<string, unknown>, options?: EventOptions): void {
+  defaultInstance?.page(name, properties, options);
 }
 
 export async function flush(): Promise<void> {
@@ -103,5 +104,5 @@ export function clearGlobalProperties(): void {
 
 // Re-export core types + BrowserConfig
 export { Alitycs };
-export type { AlitycsConfig, ResolvedConfig, AnalyticsEvent, EventType, EventContext, BatchPayload, SessionData };
+export type { AlitycsConfig, ResolvedConfig, AnalyticsEvent, EventType, EventContext, BatchPayload, SessionData, EventOptions };
 export type { BrowserConfig } from './types';

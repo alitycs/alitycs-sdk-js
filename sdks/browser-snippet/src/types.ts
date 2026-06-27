@@ -20,9 +20,9 @@ export interface QueuedCall {
 
 export interface AlitycsStub {
   (method: string, ...args: any[]): AlitycsStub;
-  track: (event: string, properties?: Record<string, any>) => AlitycsStub;
-  identify: (userId: string, traits?: Record<string, any>) => AlitycsStub;
-  page: (name?: string, properties?: Record<string, any>) => AlitycsStub;
+  track: (event: string, properties?: Record<string, any>, options?: { dedupeKey?: string; dedupeWindowMs?: number }) => AlitycsStub;
+  identify: (userId: string, traits?: Record<string, any>, options?: { dedupeKey?: string; dedupeWindowMs?: number }) => AlitycsStub;
+  page: (name?: string, properties?: Record<string, any>, options?: { dedupeKey?: string; dedupeWindowMs?: number }) => AlitycsStub;
   setGlobalProperties: (properties: Record<string, any>) => AlitycsStub;
   removeGlobalProperties: (keys: string[]) => AlitycsStub;
   clearGlobalProperties: () => AlitycsStub;
