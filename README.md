@@ -80,7 +80,7 @@ The canonical payload contract is [event schema v0.4.0](specs/event-schema.json)
 
 ## Development
 
-Requirements: [Bun](https://bun.sh) `1.3.14`.
+Requirements: [Bun](https://bun.sh) `1.3.14`, Bash, Git, jq, and Ruby 3.3 or newer.
 
 ```bash
 bun install --frozen-lockfile

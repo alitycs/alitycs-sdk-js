@@ -13,7 +13,8 @@ wire compatibility, runtime safety, and small browser footprint.
 
 ## Local setup
 
-Install Bun `1.3.14`, CPython 3.11 through 3.14, and Ruby 3.3 or newer, then run:
+Install Bun `1.3.14`, Bash, Git, jq, CPython 3.11 through 3.14, and Ruby 3.3 or newer,
+then run:
 
 ```bash
 bun install --frozen-lockfile
