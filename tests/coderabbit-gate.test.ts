@@ -1286,6 +1286,7 @@ describe("trusted CodeRabbit workflow", () => {
     const requirements = await Bun.file(
       "scripts/coderabbit-validator-requirements.txt",
     ).text();
+    const contributing = await Bun.file("CONTRIBUTING.md").text();
     expect(ci).toContain("Detect CodeRabbit validation input changes");
     expect(ci).toContain(
       "if: steps.coderabbit-config.outputs.changed == 'true'",
@@ -1315,6 +1316,8 @@ describe("trusted CodeRabbit workflow", () => {
       "not (3, 11) <= sys.version_info[:2] <= (3, 14)",
     );
     expect(validator).toContain("requires CPython 3.11 through 3.14");
+    expect(contributing).toContain("CPython 3.11 through 3.14");
+    expect(contributing).not.toContain("Python 3.11 or newer");
     expect(validator).not.toMatch(
       /readonly (?:script_dir|repository_root)="\$\(/,
     );
