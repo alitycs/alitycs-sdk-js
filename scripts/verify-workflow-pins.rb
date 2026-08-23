@@ -91,22 +91,77 @@ def scalar_value(node, anchors)
   resolved.value if resolved.is_a?(Psych::Nodes::Scalar)
 end
 
-def each_uses(node, anchors = {}, &block)
+def collect_anchors(node, anchors = {})
   register_anchor(node, anchors)
+  return anchors unless node.respond_to?(:children) && node.children
 
-  if node.is_a?(Psych::Nodes::Mapping)
-    node.children.each_slice(2) do |key, value|
-      register_anchor(key, anchors)
-      register_anchor(value, anchors)
-      if scalar_value(key, anchors) == "uses"
-        location = "line #{key.start_line + 1}, column #{key.start_column + 1}"
-        yield scalar_value(value, anchors), location
+  node.children.each { |child| collect_anchors(child, anchors) }
+  anchors
+end
+
+def mapping_entries(node, anchors)
+  resolved = resolve_alias(node, anchors)
+  return [] unless resolved.is_a?(Psych::Nodes::Mapping)
+
+  resolved.children.each_slice(2).to_a
+end
+
+def mapping_values(node, name, anchors)
+  mapping_entries(node, anchors).filter_map do |key, value|
+    [key, value] if scalar_value(key, anchors) == name
+  end
+end
+
+def sequence_items(node, anchors)
+  resolved = resolve_alias(node, anchors)
+  return [] unless resolved.is_a?(Psych::Nodes::Sequence)
+
+  resolved.children
+end
+
+def each_mapping_uses(node, anchors)
+  mapping_values(node, "uses", anchors).each do |key, value|
+    location = "line #{key.start_line + 1}, column #{key.start_column + 1}"
+    yield scalar_value(value, anchors), location
+  end
+end
+
+def each_steps_uses(node, anchors, &block)
+  sequence_items(node, anchors).each do |step|
+    each_mapping_uses(step, anchors, &block)
+  end
+end
+
+def each_workflow_uses(root, anchors, &block)
+  mapping_values(root, "jobs", anchors).each do |_jobs_key, jobs|
+    mapping_entries(jobs, anchors).each do |_job_name, job|
+      each_mapping_uses(job, anchors, &block)
+      mapping_values(job, "steps", anchors).each do |_steps_key, steps|
+        each_steps_uses(steps, anchors, &block)
       end
-      each_uses(key, anchors, &block)
-      each_uses(value, anchors, &block)
     end
-  elsif node.respond_to?(:children) && node.children
-    node.children.each { |child| each_uses(child, anchors, &block) }
+  end
+end
+
+def each_composite_action_uses(root, anchors, &block)
+  mapping_values(root, "runs", anchors).each do |_runs_key, runs|
+    mapping_values(runs, "steps", anchors).each do |_steps_key, steps|
+      each_steps_uses(steps, anchors, &block)
+    end
+  end
+end
+
+def each_action_uses(stream, path, &block)
+  anchors = collect_anchors(stream)
+
+  stream.children.each do |document|
+    document.children.each do |root|
+      if path.match?(ACTION_METADATA_PATH)
+        each_composite_action_uses(root, anchors, &block)
+      else
+        each_workflow_uses(root, anchors, &block)
+      end
+    end
   end
 end
 
@@ -130,7 +185,7 @@ begin
   sources.each do |path, content|
     begin
       stream = Psych.parse_stream(content, filename: path)
-      each_uses(stream) do |reference, location|
+      each_action_uses(stream, path) do |reference, location|
         if reference.nil?
           errors << "#{path}: #{location} uses must be a scalar string"
         elsif reference.start_with?("docker://")

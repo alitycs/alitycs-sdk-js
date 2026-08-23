@@ -96,9 +96,9 @@ async function loadGateScript() {
   return script;
 }
 
-async function runPinVerifier(input?: string) {
+async function runPinVerifier(input?: string, label = "fixture.yml") {
   const command = ["ruby", "scripts/verify-workflow-pins.rb"];
-  if (input !== undefined) command.push("--stdin", "fixture.yml");
+  if (input !== undefined) command.push("--stdin", label);
   const child = Bun.spawn(command, {
     stderr: "pipe",
     stdin: input === undefined ? "ignore" : new TextEncoder().encode(input),
@@ -1351,6 +1351,8 @@ anchors:
   action: &mutable-action actions/checkout@v4
   key: &uses-key uses
 jobs:
+  reusable:
+    uses: alitycs/reusable/.github/workflows/ci.yml@main
   invalid:
     steps:
       - "uses" : actions/checkout@v4
@@ -1361,21 +1363,79 @@ jobs:
         uses: actions/cache@v4
 `);
     expect(invalid.exitCode).toBe(1);
+    expect(invalid.stderr).toContain(
+      '"alitycs/reusable/.github/workflows/ci.yml@main"',
+    );
     expect(invalid.stderr).toContain('"actions/checkout@v4"');
     expect(invalid.stderr).toContain('"actions/setup-node@v4"');
     expect(invalid.stderr).toContain('"docker://alpine:latest"');
     expect(invalid.stderr).toContain('"actions/cache@v4"');
 
     const valid = await runPinVerifier(`
+env:
+  uses: actions/root-environment@v4
 jobs:
   valid:
     uses: alitycs/reusable/.github/workflows/ci.yml@${"a".repeat(40)}
+    with:
+      uses: actions/reusable-input@v4
   actions:
+    env:
+      uses: actions/job-environment@v4
     steps:
       - "uses": actions/checkout@${"b".repeat(40)}
+        with:
+          uses: actions/action-input@v4
+        env:
+          uses: actions/step-environment@v4
       - { uses: "docker://ghcr.io/alitycs/build@sha256:${"c".repeat(64)}" }
       - uses: ./local-action
 `);
     expect(valid.exitCode).toBe(0);
+
+    const validComposite = await runPinVerifier(
+      `
+name: Fixture composite action
+description: Exercises non-action uses keys
+inputs:
+  uses:
+    description: A harmless input named uses
+    required: false
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: echo ok
+      env:
+        uses: actions/composite-environment@v4
+    - uses: actions/checkout@${"d".repeat(40)}
+      with:
+        uses: actions/composite-input@v4
+`,
+      "action.yml",
+    );
+    expect(validComposite.exitCode).toBe(0);
+
+    const invalidComposite = await runPinVerifier(
+      `
+name: Fixture composite action
+description: Contains a real mutable action reference
+inputs:
+  uses:
+    description: A harmless input named uses
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        uses: actions/harmless-input@v4
+`,
+      "action.yaml",
+    );
+    expect(invalidComposite.exitCode).toBe(1);
+    expect(invalidComposite.stderr).toContain('"actions/checkout@v4"');
+    expect(invalidComposite.stderr).not.toContain(
+      '"actions/harmless-input@v4"',
+    );
   });
 });
