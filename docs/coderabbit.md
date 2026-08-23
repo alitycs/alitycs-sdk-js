@@ -130,8 +130,8 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
    `alitycs-sdk-react-native`; dots, underscores, empty segments, and trailing hyphens are invalid.
 2. Add a complete, standalone `.coderabbit.yaml`, both protected gate workflows, the non-gating
    scheduled/manual schema-drift workflow, their policy tests, CI, dependency review, release
-   automation, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, a pull-request template, and
-   `scripts/verify-workflow-pins.rb`. Pin every GitHub
+   automation, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, a pull-request template,
+   `scripts/verify-workflow-pins.rb`, and `scripts/audit-coderabbit-github.sh`. Pin every GitHub
    Action or reusable-workflow `uses:` reference to a full lowercase 40-character commit SHA and
    every `docker://` image, including Docker action metadata `runs.image`, to a full lowercase
    SHA-256 digest. A local `runs.image` path must resolve to a tracked file named `Dockerfile` at

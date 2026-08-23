@@ -1660,6 +1660,8 @@ describe("trusted CodeRabbit workflow", () => {
     expect(docs).toContain(
       "./scripts/audit-coderabbit-github.sh --pre-restore",
     );
+    const futureSdkSeedStep = docs.match(/2\. Add[\s\S]*?\n3\./)?.[0];
+    expect(futureSdkSeedStep).toContain("scripts/audit-coderabbit-github.sh");
     expect(docs).toContain("run the same audit again without");
     expect(audit).toContain('fail "could not read the gate App ID"');
     for (const variable of [
