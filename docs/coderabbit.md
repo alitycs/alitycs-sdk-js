@@ -142,9 +142,13 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
    `ALITYCS_CODERABBIT_GATE_CLIENT_ID`, plus environment secret
    `ALITYCS_CODERABBIT_GATE_PRIVATE_KEY`. Read the environment policy, variables, secret metadata,
    App installation permissions, and remote workflow blobs back through the GitHub API before use.
-4. Merge those baseline files using the repository's existing protections. The gate cannot be
+4. Create an active repository ruleset named `Immutable release tags` targeting tags. Include
+   exactly `refs/tags/v*`, exclude nothing, prevent updates and deletion, and configure no bypass
+   actors. The release workflow must record the annotated-tag object and target commit in its
+   unprivileged build job and compare both with a fresh remote fetch immediately before publishing.
+5. Merge those baseline files using the repository's existing protections. The gate cannot be
    required before its trusted workflow exists on `main`.
-5. From a clean checkout of the merged `main`, rerun `./scripts/verify-workflow-pins.rb`,
+6. From a clean checkout of the merged `main`, rerun `./scripts/verify-workflow-pins.rb`,
    `./scripts/validate-coderabbit.sh`, and the repository policy tests, then open a separate
    human-authored canary pull request. Observe an initial gate failure, obtain a formal
    exact-head CodeRabbit approval and successful gate, dismiss it and observe a newer gate failure,
@@ -156,26 +160,27 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
    request so fork routing and required-check recognition are observed rather than inferred. Once
    the canary succeeds, set repository variable `ALITYCS_CODERABBIT_GATE_CANARY_SHA` to its full
    lowercase head SHA.
-6. Require those three checks with strict branch updates. While the gate is required, repeat the
+7. Require those three checks with strict branch updates. While the gate is required, repeat the
    dismissal and fresh-approval transitions and verify the pull request becomes unmergeable and
    mergeable respectively. Enforce protection for administrators,
    signed commits, linear history, resolved conversations, stale-review dismissal, and last-push
    approval; disallow force-pushes and deletion. Require one native approval and keep all review
    bypass allowances empty. Confirm the canary reports that CodeRabbit's exact-head approval
    satisfies the human-authored path before closing the bootstrap change.
-7. Exercise the ignored-bot path: confirm the gate blocks a bot update, approve its exact head as a
+8. Exercise the ignored-bot path: confirm the gate blocks a bot update, approve its exact head as a
    maintainer, reconcile the gate, then dismiss the test approval so the pull request is blocked
    again.
-8. From a clean checkout synchronized to `main`, run
+9. From a clean checkout synchronized to `main`, run
    `./scripts/audit-coderabbit-github.sh alitycs/alitycs-sdk-<name>`. It fails unless the App
    selected-repository mode and permissions, fresh live canary proof of the exact selection,
    environment policy, variables, secret metadata, protected policy blob and workflow tree,
-   immutable action references, app-bound required checks, and branch protections match this
-   policy. Changing the Gate App, its selected repositories, or an SDK's private-key environment
-   secret makes the affected older canary proof stale; rerun a canary and refresh
-   `ALITYCS_CODERABBIT_GATE_CANARY_SHA` in every affected SDK. Audit timestamps are read in UTC so
-   the comparison is independent of the GitHub CLI client's local timezone, and the canary must
-   complete strictly after every relevant update to fail closed on same-second ambiguity. The audit
+   immutable action references, immutable release-tag ruleset, app-bound required checks, and
+   branch protections match this policy. Changing the Gate App, its selected repositories, or an
+   SDK's private-key environment secret makes the affected older canary proof stale; rerun a canary
+   and refresh `ALITYCS_CODERABBIT_GATE_CANARY_SHA` in every affected SDK. Audit timestamps are
+   read in UTC so the comparison is independent of the GitHub CLI client's local timezone, and the
+   canary must complete strictly after every relevant update to fail closed on same-second
+   ambiguity. The audit
    directly compares the Gate App selection with every active public SDK in the organization. It
    resolves full repository metadata before evaluating lifecycle and default-branch state instead
    of trusting optional fields in list responses. It requires Bash, Git, GitHub CLI authenticated

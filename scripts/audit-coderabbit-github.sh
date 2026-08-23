@@ -11,6 +11,7 @@ readonly gate_client_id_variable="ALITYCS_CODERABBIT_GATE_CLIENT_ID"
 readonly gate_secret="ALITYCS_CODERABBIT_GATE_PRIVATE_KEY"
 readonly github_actions_app_id="15368"
 readonly protected_workflow_tree=".github/workflows"
+readonly release_tag_ruleset_name="Immutable release tags"
 readonly sdk_repository_pattern='^alitycs-sdk-[a-z0-9]+(-[a-z0-9]+)*$'
 readonly -a protected_files=(
 	".coderabbit.yaml"
@@ -89,6 +90,35 @@ owner="${repository%%/*}"
 repository_metadata="$(gh api "repos/$repository")"
 jq -e '.private == false and .default_branch == "main"' <<<"$repository_metadata" >/dev/null ||
 	fail "$repository must be public and use main as its default branch"
+
+release_tag_rulesets="$(
+	gh api --paginate --slurp \
+		"repos/$repository/rulesets?includes_parents=false&targets=tag&per_page=100"
+)"
+release_tag_ruleset_id="$(
+	jq -r --arg name "$release_tag_ruleset_name" '
+		[.[] | .[] | select(.name == $name)] |
+		if length == 1 then .[0].id else empty end
+	' <<<"$release_tag_rulesets"
+)"
+[[ "$release_tag_ruleset_id" =~ ^[1-9][0-9]*$ ]] ||
+	fail "$repository must have exactly one $release_tag_ruleset_name repository ruleset"
+release_tag_ruleset="$(gh api "repos/$repository/rulesets/$release_tag_ruleset_id")"
+# GitHub omits the branch-only update parameters from tag-ruleset responses.
+jq -e --arg name "$release_tag_ruleset_name" --arg repository "$repository" '
+	.name == $name and
+	.target == "tag" and
+	.enforcement == "active" and
+	.source_type == "Repository" and
+	.source == $repository and
+	(.bypass_actors // []) == [] and
+	.current_user_can_bypass == "never" and
+	.conditions.ref_name.include == ["refs/tags/v*"] and
+	.conditions.ref_name.exclude == [] and
+	(.rules | length) == 2 and
+	([.rules[].type] | sort) == (["deletion", "update"] | sort)
+' <<<"$release_tag_ruleset" >/dev/null ||
+	fail "$release_tag_ruleset_name must actively prevent v* tag updates and deletion without bypasses"
 
 installations="$(
 	gh api -H "Time-Zone: UTC" --paginate --slurp \

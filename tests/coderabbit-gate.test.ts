@@ -679,7 +679,10 @@ describe("trusted CodeRabbit workflow", () => {
     const release = Bun.YAML.parse(releaseText) as {
       permissions: Record<string, string>;
       jobs: {
-        build: { permissions: Record<string, string> };
+        build: {
+          outputs: Record<string, string>;
+          permissions: Record<string, string>;
+        };
         release: {
           needs: string;
           permissions: Record<string, string>;
@@ -689,6 +692,10 @@ describe("trusted CodeRabbit workflow", () => {
 
     expect(release.permissions).toEqual({});
     expect(release.jobs.build.permissions).toEqual({ contents: "read" });
+    expect(Object.keys(release.jobs.build.outputs).sort()).toEqual([
+      "tag_commit",
+      "tag_object",
+    ]);
     expect(release.jobs.release.needs).toBe("build");
     expect(release.jobs.release.permissions).toEqual({
       attestations: "write",
@@ -701,7 +708,20 @@ describe("trusted CodeRabbit workflow", () => {
     );
     expect(releaseText).toContain('git cat-file -t "$GITHUB_REF"');
     expect(releaseText).toContain(
+      'if [[ "$tag_commit" != "$GITHUB_SHA" ]]',
+    );
+    expect(releaseText).toContain(
       'git merge-base --is-ancestor "$tag_commit" "$main_commit"',
+    );
+    expect(releaseText).toContain("Recheck immutable release tag");
+    expect(releaseText).toContain(
+      '"+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"',
+    );
+    expect(releaseText).toContain(
+      '[[ "$current_tag_object" != "$EXPECTED_TAG_OBJECT" ]]',
+    );
+    expect(releaseText).toContain(
+      '[[ "$current_tag_commit" != "$EXPECTED_TAG_COMMIT" ]]',
     );
     expect(releaseText).toMatch(/actions\/upload-artifact@[0-9a-f]{40}/);
     expect(releaseText).toMatch(/actions\/download-artifact@[0-9a-f]{40}/);
@@ -1462,6 +1482,17 @@ describe("trusted CodeRabbit workflow", () => {
     expect(audit).toContain(
       'readonly protected_workflow_tree=".github/workflows"',
     );
+    expect(audit).toContain(
+      'readonly release_tag_ruleset_name="Immutable release tags"',
+    );
+    expect(audit).toContain(
+      '"repos/$repository/rulesets?includes_parents=false&targets=tag&per_page=100"',
+    );
+    expect(audit).toContain('.conditions.ref_name.include == ["refs/tags/v*"]');
+    expect(audit).toContain('(.bypass_actors // []) == []');
+    expect(audit).toContain('.current_user_can_bypass == "never"');
+    expect(audit).toContain('([.rules[].type] | sort)');
+    expect(audit).not.toContain("update_allows_fetch_and_merge");
     expect(audit).toContain('.repository_selection == "selected"');
     expect(audit).toContain("ALITYCS_CODERABBIT_GATE_CANARY_SHA");
     expect(audit).toContain('"alitycs-coderabbit-gate/v9:"');
