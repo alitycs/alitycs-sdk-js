@@ -7,10 +7,6 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   build:
     name: Build release artifacts

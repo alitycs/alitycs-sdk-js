@@ -187,6 +187,27 @@ def node_location(node)
   "line #{node.start_line + 1}, column #{node.start_column + 1}"
 end
 
+def each_yaml_merge_key(node, context, &block)
+  if node.is_a?(Psych::Nodes::Mapping)
+    node.children.each_slice(2) do |key, value|
+      block.call(node_location(key)) if scalar_value(key, context) == "<<"
+      each_yaml_merge_key(key, context, &block)
+      each_yaml_merge_key(value, context, &block)
+    end
+  elsif node.respond_to?(:children) && node.children
+    node.children.each { |child| each_yaml_merge_key(child, context, &block) }
+  end
+end
+
+def each_document_merge_key(stream, &block)
+  stream.children.each do |document|
+    context = document_context(document)
+    document.children.each do |root|
+      each_yaml_merge_key(root, context, &block)
+    end
+  end
+end
+
 def each_workflow_container_image(job, context)
   mapping_values(job, "container", context).each do |container_key, container|
     resolved_container = resolve_alias(container, context)
@@ -311,6 +332,9 @@ begin
   sources.each do |path, content|
     begin
       stream = Psych.parse_stream(content, filename: path)
+      each_document_merge_key(stream) do |location|
+        errors << "#{path}: #{location} YAML merge keys (<<) are not supported"
+      end
       each_action_uses(stream, path) do |reference, location, reference_kind|
         if %i[workflow_container_image workflow_service_image].include?(reference_kind)
           image_type = reference_kind == :workflow_container_image ? "container" : "service"

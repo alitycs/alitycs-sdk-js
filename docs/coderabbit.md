@@ -16,7 +16,10 @@ reusable workflows require full commit SHAs, Docker action images retain their `
 or tracked local `Dockerfile` rules, and every workflow job container or service image must be a
 literal lowercase registry reference ending in `@sha256:` plus 64 lowercase hexadecimal digits.
 The workflow-image check covers scalar and mapping container forms, aliases, flow collections,
-duplicate keys, and non-scalar values.
+duplicate keys, and non-scalar values. YAML merge keys (`<<`) are rejected anywhere in workflow or
+action metadata because GitHub Actions does not support them and treating them as ordinary keys
+could hide references from structural verification. Use anchors and aliases only as complete
+values.
 
 `.github/workflows/coderabbit-schema-drift.yml` compares that snapshot with CodeRabbit's live
 schema every week and on manual dispatch. It never runs for pull requests or pushes and is
@@ -142,7 +145,8 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
    `./scripts/verify-workflow-pins.rb`, `./scripts/validate-coderabbit.sh`, and the repository policy
    tests before merging the baseline. The structural verifier covers YAML quoting, flow mappings,
    aliases, duplicate keys, tracked local composite-action metadata, Docker action images, and
-   workflow job container and service images, including scalar and mapping container forms.
+   workflow job container and service images, including scalar and mapping container forms. It
+   rejects YAML merge keys (`<<`) anywhere in workflow or action metadata.
    Same-commit actions and reusable workflows may use GitHub's `$/` syntax or the compatible `./`
    syntax; both are resolved only to tracked files at the audited commit.
    Copy the pinned schema snapshot, hash-locked validator requirements, and validation script as a

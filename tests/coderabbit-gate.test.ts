@@ -786,6 +786,10 @@ describe("trusted CodeRabbit workflow", () => {
     const releaseText = await Bun.file(".github/workflows/release.yml").text();
     const readme = await Bun.file("README.md").text();
     const releaseGuide = await Bun.file("docs/RELEASING.md").text();
+    const policy = await Bun.file(".coderabbit.yaml").text();
+    const releasePolicy = policy
+      .split('    - path: ".github/workflows/release.yml"')[1]
+      ?.split('\n    - path: ".github/workflows/**"')[0];
     const release = Bun.YAML.parse(releaseText) as {
       permissions: Record<string, string>;
       jobs: {
@@ -801,6 +805,7 @@ describe("trusted CodeRabbit workflow", () => {
     };
 
     expect(release.permissions).toEqual({});
+    expect("concurrency" in release).toBe(false);
     expect(release.jobs.build.permissions).toEqual({ contents: "read" });
     expect(release.jobs.build.outputs).toEqual({
       tag_commit: "${{ steps.verify_tag.outputs.tag_commit }}",
@@ -833,6 +838,13 @@ describe("trusted CodeRabbit workflow", () => {
     );
     expect(releaseText).toMatch(/actions\/upload-artifact@[0-9a-f]{40}/);
     expect(releaseText).toMatch(/actions\/download-artifact@[0-9a-f]{40}/);
+    expect(releasePolicy).toContain("Concurrency groups are repository-global");
+    expect(releasePolicy).toContain(
+      "immutable tag and version publication identities",
+    );
+    expect(releaseGuide).toContain(
+      "intentionally has no Actions concurrency group",
+    );
     for (const documentation of [readme, releaseGuide]) {
       expect(documentation).toContain("vMAJOR.MINOR.PATCH-PRERELEASE");
       expect(documentation).toContain("v1.1.0-rc.1");
@@ -1268,6 +1280,36 @@ describe("trusted CodeRabbit workflow", () => {
     expect(result.outputs).toEqual({
       has_pull_requests: "true",
       pull_requests: "[7,8,9]",
+    });
+  });
+
+  test("rejects a review signal without a valid head SHA", async () => {
+    const result = await runRoute({
+      emptyPullRequests: true,
+      headSha: "not-a-sha",
+    });
+
+    expect(result.failures).toEqual([
+      "The canonical review signal has no valid head SHA.",
+    ]);
+    expect(result.outputs).toEqual({
+      has_pull_requests: "false",
+      pull_requests: "[]",
+    });
+  });
+
+  test("refuses to fan out more than 256 reconciliation jobs", async () => {
+    const result = await runRoute({
+      eventName: "push",
+      matchingPullRequests: 257,
+    });
+
+    expect(result.failures).toEqual([
+      "Refusing to create more than 256 reconciliation jobs.",
+    ]);
+    expect(result.outputs).toEqual({
+      has_pull_requests: "false",
+      pull_requests: "[]",
     });
   });
 
@@ -1965,6 +2007,88 @@ runs:
     expect(invalidLocalDockerAction.stderr).toContain(
       'invalid Docker action image "../Dockerfile"',
     );
+  });
+
+  test("rejects YAML merge keys in workflows and action metadata", async () => {
+    const immutableAction = `actions/checkout@${"a".repeat(40)}`;
+    const fixtures = [
+      `
+defaults: &defaults { uses: ${immutableAction} }
+jobs:
+  inherited-job:
+    <<: *defaults
+`,
+      `
+defaults: &defaults { uses: ${immutableAction} }
+jobs:
+  inherited-step:
+    steps: [{ <<: *defaults, name: inherited }]
+`,
+      `
+merge-key: &merge-key "<<"
+defaults: &defaults { uses: ${immutableAction} }
+jobs:
+  aliased-key:
+    *merge-key: *defaults
+`,
+      `
+defaults: &defaults { value: harmless }
+metadata:
+  nested: { <<: *defaults }
+jobs:
+  valid:
+    steps:
+      - uses: ${immutableAction}
+`,
+    ];
+    for (const fixture of fixtures) {
+      const result = await runPinVerifier(fixture);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("YAML merge keys (<<) are not supported");
+    }
+
+    const duplicateMergeKeys = await runPinVerifier(`
+defaults: &defaults { uses: ${immutableAction} }
+jobs:
+  duplicate:
+    <<: *defaults
+    <<: *defaults
+`);
+    expect(duplicateMergeKeys.exitCode).toBe(1);
+    expect(
+      duplicateMergeKeys.stderr.match(
+        /YAML merge keys \(<<\) are not supported/g,
+      ),
+    ).toHaveLength(2);
+
+    const action = await runPinVerifier(
+      `
+defaults: &defaults { description: inherited }
+inputs:
+  settings: { <<: *defaults }
+runs:
+  steps:
+    - uses: ${immutableAction}
+  using: composite
+`,
+      "action.yml",
+    );
+    expect(action.exitCode).toBe(1);
+    expect(action.stderr).toContain("YAML merge keys (<<) are not supported");
+
+    const harmlessValue = await runPinVerifier(`
+marker: "<<"
+jobs:
+  valid:
+    steps:
+      - uses: ${immutableAction}
+`);
+    expect(harmlessValue.exitCode).toBe(0);
+
+    const docs = await Bun.file("docs/coderabbit.md").text();
+    const policy = await Bun.file(".coderabbit.yaml").text();
+    expect(docs).toContain("YAML merge keys (`<<`) are rejected");
+    expect(policy).toContain("Reject YAML merge keys (`<<`)");
   });
 
   test("requires literal immutable workflow container and service images", async () => {

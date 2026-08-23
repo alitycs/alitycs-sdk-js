@@ -15,7 +15,10 @@ The repository uses one version for `@alitycs/core`, `@alitycs/browser`, and
    minimal-permission job attests and attaches installable tarballs with SHA-256 checksums and
    creates the GitHub Release with generated notes. Before publication, it fetches the tag again
    and requires its annotated-tag object and target commit to match the identities recorded by the
-   build job.
+   build job. The workflow intentionally has no Actions concurrency group because pull-request
+   workflow code can reserve repository-global groups. Immutable tags, the fresh identity recheck,
+   and immutable tag and version publication identities provide duplicate-release safety without
+   that repository-global lock.
 
 Public npm publication is intentionally not attempted until the organization configures the npm
 namespace and a trusted publisher or `NPM_TOKEN`. Once configured, registry publication must run

@@ -39,8 +39,10 @@ reviews:
         reproducibility, least privilege, or supply-chain safety. GitHub Actions and reusable
         workflows must use full immutable commit SHAs. Docker actions must use immutable SHA-256
         digests; workflow job container and service images must use literal lowercase registry
-        references pinned to full SHA-256 digests. Treat formatting-only preferences as
-        non-blocking when automation already enforces them.
+        references pinned to full SHA-256 digests. Reject YAML merge keys (`<<`) anywhere in
+        workflow or action metadata; GitHub Actions does not support them, and they can hide
+        references from structural verification. Treat formatting-only preferences as non-blocking
+        when automation already enforces them.
     - path: "sdks/core/src/**"
       instructions: >-
         Preserve the public TypeScript API and the POST /events wire contract. The SDK accepts
@@ -103,6 +105,13 @@ reviews:
         data. The trusted gate must treat its workflow_run completion only as a wake-up signal and
         accept that signal only from CodeRabbit or a current write-level collaborator, then re-read
         all pull requests, reviews, workflow identities, and permissions from GitHub.
+    - path: ".github/workflows/release.yml"
+      instructions: >-
+        Do not add an Actions concurrency key. Concurrency groups are repository-global, so a
+        pull-request-controlled workflow could reserve the release group's name and block tag
+        publication. Preserve immutable release tags, the fresh pre-publication tag-identity
+        recheck, and immutable tag and version publication identities as duplicate-release
+        defenses.
     - path: ".github/workflows/**"
       instructions: >-
         This entire tree is an exact protected boundary because required Actions checks are bound
@@ -112,8 +121,9 @@ reviews:
         least-privileged, GitHub and reusable actions pinned to full commit SHAs, and Docker actions
         pinned to SHA-256 digests. Keep runner labels pinned to explicit OS versions. Workflow
         container and service images must be literal lowercase registry references pinned to full
-        SHA-256 digests. CI must stay deterministic, and releases must be gated on the complete
-        verification and package-integrity suite.
+        SHA-256 digests. Reject YAML merge keys (`<<`) everywhere while continuing to resolve
+        ordinary anchors and aliases structurally. CI must stay deterministic, and releases must
+        be gated on the complete verification and package-integrity suite.
 
   auto_review:
     enabled: true
