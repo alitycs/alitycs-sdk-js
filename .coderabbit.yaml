@@ -84,10 +84,14 @@ reviews:
         This is a protected trust boundary. It must run only from trusted main-branch push,
         pull_request_target, canonical workflow_run, maintainer-command, or manual events without
         checking out or executing pull-request code. Keep the coderabbit-gate environment
-        restricted to main, verify the policy blob and complete workflow tree against the current
-        main ref, reconcile reviews from the API, avoid repository-global concurrency keys, and
-        publish a fresh evaluation through one canonical exact-head check owned by the dedicated
-        Alitycs Gate app. Normalize duplicate App-owned checks before success. Ordinary pull
+        restricted to main. Use a separate Octokit client authenticated by an owner-scoped,
+        Contents-read token to verify that the selected Gate App installation contains the current
+        repository and only active, public, independent alitycs-sdk-* repositories on main; recheck
+        that selection before reading reviews and immediately before a conclusion. Verify the
+        policy blob and complete workflow tree against the current main ref, reconcile reviews from
+        the API, and avoid repository-global concurrency keys. Rename prior canonical checks to
+        unique neutral superseded names, create a fresh exact-head check owned by the dedicated
+        Alitycs Gate app, and normalize concurrent duplicates before any conclusion. Ordinary pull
         requests must not alter this file.
     - path: ".github/workflows/coderabbit-review-event.yml"
       instructions: >-

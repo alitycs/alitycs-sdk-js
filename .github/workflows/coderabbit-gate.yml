@@ -209,6 +209,15 @@ jobs:
     environment: coderabbit-gate
     timeout-minutes: 5
     steps:
+      - name: Mint the selected-repository inspection token
+        id: installation-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.ALITYCS_CODERABBIT_GATE_CLIENT_ID }}
+          private-key: ${{ secrets.ALITYCS_CODERABBIT_GATE_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
+
       - name: Mint the dedicated gate token
         id: gate-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -225,6 +234,7 @@ jobs:
         env:
           GATE_APP_ID: ${{ vars.ALITYCS_CODERABBIT_GATE_APP_ID }}
           GATE_APP_SLUG: ${{ steps.gate-token.outputs.app-slug }}
+          INSTALLATION_TOKEN: ${{ steps.installation-token.outputs.token }}
           PULL_REQUEST_NUMBER: ${{ matrix.pull_request }}
         with:
           github-token: ${{ steps.gate-token.outputs.token }}
@@ -241,6 +251,7 @@ jobs:
             const environmentName = "coderabbit-gate";
             const gateAppId = Number(process.env.GATE_APP_ID);
             const gateAppSlug = process.env.GATE_APP_SLUG;
+            const installationToken = process.env.INSTALLATION_TOKEN;
             const ignoredBots = new Set([
               "dependabot[bot]",
               "renovate[bot]",
@@ -249,11 +260,17 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            if (!Number.isSafeInteger(gateAppId) || gateAppId <= 0 || !gateAppSlug) {
+            if (
+              !Number.isSafeInteger(gateAppId) ||
+              gateAppId <= 0 ||
+              !gateAppSlug ||
+              !installationToken
+            ) {
               core.setFailed("The dedicated gate app identity is unavailable.");
               return;
             }
 
+            const installationGithub = getOctokit(installationToken);
             const errorMessage = (error) =>
               error instanceof Error ? error.message : String(error);
 
@@ -272,11 +289,74 @@ jobs:
               const headSha = pullRequest.head.sha;
               const author = pullRequest.user.login;
               const externalId =
-                `alitycs-coderabbit-gate/v8:${pullNumber}:${headSha}:` +
+                `alitycs-coderabbit-gate/v9:${pullNumber}:${headSha}:` +
                 `${context.runId}:${context.runAttempt}`;
               const detailsUrl =
                 `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
               let checkRunId;
+
+              const claimRank = (checkRun) => {
+                const fields = String(checkRun.external_id || "").split(":");
+                if (
+                  fields.length !== 5 ||
+                  fields[0] !== "alitycs-coderabbit-gate/v9" ||
+                  Number(fields[1]) !== pullNumber ||
+                  fields[2] !== headSha
+                ) {
+                  return { runAttempt: -1, runId: -1 };
+                }
+                const runId = Number(fields[3]);
+                const runAttempt = Number(fields[4]);
+                return Number.isSafeInteger(runId) && Number.isSafeInteger(runAttempt)
+                  ? { runAttempt, runId }
+                  : { runAttempt: -1, runId: -1 };
+              };
+              const compareRanks = (left, right) =>
+                left.runId === right.runId
+                  ? left.runAttempt - right.runAttempt
+                  : left.runId - right.runId;
+              const currentRank = {
+                runAttempt: Number(context.runAttempt),
+                runId: Number(context.runId),
+              };
+
+              const inspectInstallation = async () => {
+                const repositories = await installationGithub.paginate(
+                  "GET /installation/repositories",
+                  { per_page: 100 },
+                );
+                const currentRepository = `${owner}/${repo}`.toLowerCase();
+                const invalidRepositories = repositories.filter(
+                  (candidate) =>
+                    candidate.owner?.login?.toLowerCase() !== owner.toLowerCase() ||
+                    !/^alitycs-sdk-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(candidate.name) ||
+                    candidate.private !== false ||
+                    candidate.visibility !== "public" ||
+                    candidate.archived !== false ||
+                    candidate.disabled === true ||
+                    candidate.fork !== false ||
+                    candidate.default_branch !== "main",
+                );
+                const includesCurrent = repositories.some(
+                  (candidate) => candidate.full_name.toLowerCase() === currentRepository,
+                );
+                const fingerprint = repositories
+                  .map(
+                    (candidate) =>
+                      `${candidate.id}:${candidate.full_name}:${candidate.private}:` +
+                      `${candidate.visibility}:${candidate.archived}:${candidate.disabled}:` +
+                      `${candidate.fork}:${candidate.default_branch}`,
+                  )
+                  .sort()
+                  .join("|");
+                return {
+                  fingerprint,
+                  includesCurrent,
+                  invalidRepositories: invalidRepositories.map(
+                    (candidate) => candidate.full_name,
+                  ),
+                };
+              };
 
               const listOwnedGateChecks = async () =>
                 (
@@ -346,59 +426,69 @@ jobs:
                     : "This human-authored pull request needs a current-head CodeRabbit approval.",
                 };
 
-                let ownedChecks = await listOwnedGateChecks();
-                if (ownedChecks.length === 0) {
-                  const created = await github.rest.checks.create({
+                const supersede = (checkRun) =>
+                  github.rest.checks.update({
                     owner,
                     repo,
-                    name: gateName,
-                    head_sha: headSha,
-                    status: "in_progress",
-                    started_at: new Date().toISOString(),
-                    details_url: detailsUrl,
-                    external_id: externalId,
-                    output: pendingOutput,
+                    check_run_id: checkRun.id,
+                    name: `${gateName} (superseded ${checkRun.id})`,
+                    status: "completed",
+                    conclusion: "neutral",
+                    completed_at: new Date().toISOString(),
+                    output: {
+                      title: "Superseded gate check",
+                      summary: "A newer reconciliation created the canonical exact-head gate.",
+                    },
                   });
-                  const byId = new Map(
-                    (await listOwnedGateChecks()).map((checkRun) => [checkRun.id, checkRun]),
-                  );
-                  byId.set(created.data.id, created.data);
-                  ownedChecks = [...byId.values()];
-                }
-                ownedChecks.sort((left, right) => left.id - right.id);
-                checkRunId = ownedChecks[0].id;
 
-                await Promise.all(
-                  ownedChecks.map((checkRun) =>
-                    github.rest.checks.update({
-                      owner,
-                      repo,
-                      check_run_id: checkRun.id,
-                      external_id: externalId,
-                      status: "in_progress",
-                      started_at: new Date().toISOString(),
-                      details_url: detailsUrl,
-                      output: pendingOutput,
-                    }),
-                  ),
+                const previousChecks = await listOwnedGateChecks();
+                if (
+                  previousChecks.some(
+                    (checkRun) => compareRanks(claimRank(checkRun), currentRank) > 0,
+                  )
+                ) {
+                  core.notice("A newer reconciliation already owns the exact-head gate check.");
+                  return;
+                }
+                await Promise.all(previousChecks.map(supersede));
+
+                const created = await github.rest.checks.create({
+                  owner,
+                  repo,
+                  name: gateName,
+                  head_sha: headSha,
+                  status: "in_progress",
+                  started_at: new Date().toISOString(),
+                  details_url: detailsUrl,
+                  external_id: externalId,
+                  output: pendingOutput,
+                });
+                const byId = new Map(
+                  (await listOwnedGateChecks()).map((checkRun) => [checkRun.id, checkRun]),
                 );
-                await Promise.all(
-                  ownedChecks.slice(1).map((checkRun) =>
-                    github.rest.checks.update({
-                      owner,
-                      repo,
-                      check_run_id: checkRun.id,
-                      name: `${gateName} (superseded ${checkRun.id})`,
-                      status: "completed",
-                      conclusion: "neutral",
-                      completed_at: new Date().toISOString(),
-                      output: {
-                        title: "Superseded duplicate gate check",
-                        summary: "The oldest App-owned check is the canonical exact-head gate.",
-                      },
-                    }),
-                  ),
-                );
+                byId.set(created.data.id, created.data);
+                const stableChecks = [...byId.values()].sort((left, right) => {
+                  const byClaim = compareRanks(claimRank(right), claimRank(left));
+                  return byClaim === 0 ? right.id - left.id : byClaim;
+                });
+                const canonical = stableChecks[0];
+                if (compareRanks(claimRank(canonical), currentRank) > 0) {
+                  await supersede(created.data);
+                  core.notice("A newer reconciliation won the exact-head gate claim.");
+                  return;
+                }
+                checkRunId = canonical.id;
+                await github.rest.checks.update({
+                  owner,
+                  repo,
+                  check_run_id: checkRunId,
+                  external_id: externalId,
+                  status: "in_progress",
+                  started_at: new Date().toISOString(),
+                  details_url: detailsUrl,
+                  output: pendingOutput,
+                });
+                await Promise.all(stableChecks.slice(1).map(supersede));
                 if (!(await ownsCanonicalCheck())) return;
 
                 const baseSha = (
@@ -437,6 +527,21 @@ jobs:
                   const message =
                     "The coderabbit-gate environment must allow exactly the main branch.";
                   if (await finish("failure", "Unsafe gate environment policy", message)) {
+                    core.setFailed(message);
+                  }
+                  return;
+                }
+
+                const initialInstallation = await inspectInstallation();
+                if (
+                  !initialInstallation.includesCurrent ||
+                  initialInstallation.invalidRepositories.length > 0
+                ) {
+                  const invalid = initialInstallation.invalidRepositories.join(", ") || "none";
+                  const message =
+                    "The Gate App installation must contain this repository and only public, " +
+                    `independent alitycs-sdk-* repositories on main. Invalid: ${invalid}.`;
+                  if (await finish("failure", "Unsafe Gate App repository selection", message)) {
                     core.setFailed(message);
                   }
                   return;
@@ -567,6 +672,21 @@ jobs:
                   return;
                 }
 
+                const currentInstallation = await inspectInstallation();
+                if (
+                  !currentInstallation.includesCurrent ||
+                  currentInstallation.invalidRepositories.length > 0 ||
+                  currentInstallation.fingerprint !== initialInstallation.fingerprint
+                ) {
+                  const message =
+                    "The Gate App selected-repository boundary changed or became unsafe during " +
+                    "evaluation.";
+                  if (await finish("failure", "Gate App installation changed", message)) {
+                    core.setFailed(message);
+                  }
+                  return;
+                }
+
                 const reviews = await github.paginate(github.rest.pulls.listReviews, {
                   owner,
                   repo,
@@ -614,6 +734,21 @@ jobs:
                 } else {
                   approved =
                     latestByReviewer.get("coderabbitai[bot]")?.state === "APPROVED";
+                }
+
+                const finalInstallation = await inspectInstallation();
+                if (
+                  !finalInstallation.includesCurrent ||
+                  finalInstallation.invalidRepositories.length > 0 ||
+                  finalInstallation.fingerprint !== initialInstallation.fingerprint
+                ) {
+                  const message =
+                    "The Gate App selected-repository boundary changed or became unsafe before " +
+                    "the gate conclusion.";
+                  if (await finish("failure", "Gate App installation changed", message)) {
+                    core.setFailed(message);
+                  }
+                  return;
                 }
 
                 if (approved) {

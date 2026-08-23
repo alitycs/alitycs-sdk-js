@@ -6,6 +6,7 @@ readonly gate_app_slug="alitycs-coderabbit-gate"
 readonly gate_check_name="Alitycs CodeRabbit Gate"
 readonly gate_environment="coderabbit-gate"
 readonly gate_app_id_variable="ALITYCS_CODERABBIT_GATE_APP_ID"
+readonly gate_canary_sha_variable="ALITYCS_CODERABBIT_GATE_CANARY_SHA"
 readonly gate_client_id_variable="ALITYCS_CODERABBIT_GATE_CLIENT_ID"
 readonly gate_secret="ALITYCS_CODERABBIT_GATE_PRIVATE_KEY"
 readonly github_actions_app_id="15368"
@@ -81,7 +82,10 @@ repository_metadata="$(gh api "repos/$repository")"
 jq -e '.private == false and .default_branch == "main"' <<<"$repository_metadata" >/dev/null ||
 	fail "$repository must be public and use main as its default branch"
 
-installations="$(gh api --paginate --slurp "orgs/$owner/installations?per_page=100")"
+installations="$(
+	gh api -H "Time-Zone: UTC" --paginate --slurp \
+		"orgs/$owner/installations?per_page=100"
+)"
 installation="$(
 	jq -c --arg slug "$gate_app_slug" '.[] | .installations[] | select(.app_slug == $slug)' <<<"$installations" |
 		head -n 1
@@ -136,9 +140,13 @@ jq -e '
 	fail "coderabbitai must match the documented permission and webhook allowlists"
 
 gate_app_id="$(jq -r '.app_id' <<<"$installation")"
-gate_app="$(gh api "apps/$gate_app_slug")"
+installation_updated_at="$(jq -r '.updated_at // empty' <<<"$installation")"
+[[ -n "$installation_updated_at" ]] || fail "could not read the gate App installation update time"
+gate_app="$(gh api -H "Time-Zone: UTC" "apps/$gate_app_slug")"
 gate_client_id="$(jq -r '.client_id // empty' <<<"$gate_app")"
+gate_app_updated_at="$(jq -r '.updated_at // empty' <<<"$gate_app")"
 [[ -n "$gate_client_id" ]] || fail "could not read the gate App client ID"
+[[ -n "$gate_app_updated_at" ]] || fail "could not read the gate App update time"
 
 environment="$(gh api "repos/$repository/environments/$gate_environment")"
 jq -e '
@@ -167,8 +175,17 @@ configured_app_id="$(
 )"
 [[ "$configured_app_id" == "$gate_app_id" ]] ||
 	fail "$gate_app_id_variable does not match the installed gate App"
-gh api "repos/$repository/environments/$gate_environment/secrets/$gate_secret" --silent ||
-	fail "$gate_secret is missing from the gate environment"
+gate_secret_metadata="$(
+	gh api -H "Time-Zone: UTC" \
+		"repos/$repository/environments/$gate_environment/secrets/$gate_secret"
+)" || fail "$gate_secret is missing from the gate environment"
+gate_secret_updated_at="$(jq -r '.updated_at // empty' <<<"$gate_secret_metadata")"
+[[ -n "$gate_secret_updated_at" ]] || fail "could not read the gate private-key update time"
+canary_sha="$(
+	gh api "repos/$repository/actions/variables/$gate_canary_sha_variable" --jq .value
+)"
+[[ "$canary_sha" =~ ^[0-9a-f]{40}$ ]] ||
+	fail "$gate_canary_sha_variable must contain a full lowercase commit SHA"
 
 local_head="$(git rev-parse HEAD)"
 git diff --quiet && git diff --cached --quiet ||
@@ -224,6 +241,42 @@ jq -e '
 	.state == "active"
 ' <<<"$signal_workflow" >/dev/null ||
 	fail "the canonical CodeRabbit review-event workflow is not registered and active"
+
+canary_checks="$(
+	gh api --method GET --paginate --slurp \
+		-H "Accept: application/vnd.github+json" \
+		-H "Time-Zone: UTC" \
+		"repos/$repository/commits/$canary_sha/check-runs" \
+		-f check_name="$gate_check_name" \
+		-f filter=all \
+		-F per_page=100
+)"
+jq -e \
+	--arg app_updated_at "$gate_app_updated_at" \
+	--arg canary_sha "$canary_sha" \
+	--arg external_id_prefix "alitycs-coderabbit-gate/v9:" \
+	--arg gate_app_slug "$gate_app_slug" \
+		--arg gate_check_name "$gate_check_name" \
+		--arg installation_updated_at "$installation_updated_at" \
+		--arg secret_updated_at "$gate_secret_updated_at" \
+	--argjson gate_app_id "$gate_app_id" '
+	def epoch: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
+	[.[] | .check_runs[] |
+		select(
+			.name == $gate_check_name and
+			.head_sha == $canary_sha and
+			.app.id == $gate_app_id and
+			.app.slug == $gate_app_slug and
+			.status == "completed" and
+			.conclusion == "success" and
+			((.external_id // "") | startswith($external_id_prefix)) and
+				(.completed_at | epoch) > ($installation_updated_at | epoch) and
+				(.completed_at | epoch) > ($app_updated_at | epoch) and
+				(.completed_at | epoch) > ($secret_updated_at | epoch)
+		)
+	] | length == 1
+' <<<"$canary_checks" >/dev/null ||
+	fail "the recorded Gate App canary is missing, stale, duplicated, or unsuccessful"
 
 protection="$(gh api "repos/$repository/branches/main/protection")"
 jq -e --arg gate_name "$gate_check_name" --argjson gate_app_id "$gate_app_id" --argjson actions_app_id "$github_actions_app_id" '

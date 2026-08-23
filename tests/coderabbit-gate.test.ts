@@ -14,10 +14,17 @@ interface RunOptions {
   claimLostBeforeFinish?: boolean;
   duplicateHead?: boolean;
   environmentMainOnly?: boolean;
+  existingGateExternalIds?: string[];
   existingGateCheckIds?: number[];
   gateAppId?: number | null;
   gateAppSlug?: string | null;
   gateChecksError?: Error;
+  installationChangesBeforeConclusion?: boolean;
+  installationChangesDuringEvaluation?: boolean;
+  installationMissingCurrent?: boolean;
+  installationToken?: string | null;
+  invalidSelectedRepository?: boolean;
+  newerGateAppearsAfterCreate?: boolean;
   mainChangesDuringEvaluation?: boolean;
   nonRegularProtectedPath?: string;
   permission?: string;
@@ -113,9 +120,11 @@ async function runGate(options: RunOptions = {}) {
   const updated: Array<Record<string, unknown>> = [];
   const errors: string[] = [];
   const failures: string[] = [];
+  const installationTokens: string[] = [];
   const notices: string[] = [];
   let checkGetCount = 0;
   let getRefCount = 0;
+  let installationInspectionCount = 0;
   const pullRequest = {
     base: { ref: "main", sha: options.recordedBaseSha ?? baseSha },
     draft: false,
@@ -126,15 +135,79 @@ async function runGate(options: RunOptions = {}) {
   };
   const gateChecks: Array<Record<string, unknown>> = (
     options.existingGateCheckIds ?? []
-  ).map((id) => ({
+  ).map((id, index) => ({
     app: { id: gateAppId, slug: gateAppSlug },
     conclusion: "failure",
-    external_id: "previous-reconciliation",
+    external_id:
+      options.existingGateExternalIds?.[index] ?? "previous-reconciliation",
     head_sha: headSha,
     id,
     name: gateName,
     status: "completed",
   }));
+  const selectedRepositories = [
+    {
+      archived: false,
+      default_branch: "main",
+      disabled: false,
+      fork: false,
+      full_name: "alitycs/alitycs-sdk-js",
+      id: 1,
+      name: "alitycs-sdk-js",
+      owner: { login: "alitycs" },
+      private: false,
+      visibility: "public",
+    },
+    {
+      archived: false,
+      default_branch: "main",
+      disabled: false,
+      fork: false,
+      full_name: "alitycs/alitycs-sdk-jvm",
+      id: 2,
+      name: "alitycs-sdk-jvm",
+      owner: { login: "alitycs" },
+      private: false,
+      visibility: "public",
+    },
+  ];
+  const invalidRepository = {
+    archived: false,
+    default_branch: "main",
+    disabled: false,
+    fork: false,
+    full_name: "alitycs/alitycs-api",
+    id: 3,
+    name: "alitycs-api",
+    owner: { login: "alitycs" },
+    private: false,
+    visibility: "public",
+  };
+  const paginateInstallation = async (method: unknown) => {
+    if (method !== "GET /installation/repositories") {
+      throw new Error("Unexpected installation endpoint");
+    }
+    installationInspectionCount += 1;
+    const repositories = options.installationMissingCurrent
+      ? selectedRepositories.filter(
+          (candidate) => candidate.full_name !== "alitycs/alitycs-sdk-js",
+        )
+      : [...selectedRepositories];
+    if (
+      options.invalidSelectedRepository ||
+      (options.installationChangesDuringEvaluation &&
+        installationInspectionCount > 1) ||
+      (options.installationChangesBeforeConclusion &&
+        installationInspectionCount > 2)
+    ) {
+      repositories.push(invalidRepository);
+    }
+    return repositories;
+  };
+  const getOctokit = (token: string) => {
+    installationTokens.push(token);
+    return { paginate: paginateInstallation };
+  };
   const github = {
     paginate: async (method: unknown) => {
       if (method === listDeploymentBranchPolicies) {
@@ -182,6 +255,13 @@ async function runGate(options: RunOptions = {}) {
             id: 501,
           };
           gateChecks.push(checkRun);
+          if (options.newerGateAppearsAfterCreate) {
+            gateChecks.push({
+              ...checkRun,
+              external_id: `alitycs-coderabbit-gate/v9:7:${headSha}:100:1`,
+              id: 502,
+            });
+          }
           return { data: checkRun };
         },
         get: async ({ check_run_id }: { check_run_id: number }) => {
@@ -342,6 +422,7 @@ async function runGate(options: RunOptions = {}) {
     "github",
     "context",
     "core",
+    "getOctokit",
     "process",
     script,
   );
@@ -352,8 +433,19 @@ async function runGate(options: RunOptions = {}) {
   if (options.gateAppSlug !== null) {
     env.GATE_APP_SLUG = options.gateAppSlug ?? gateAppSlug;
   }
-  await execute(github, context, core, { env });
-  return { created, errors, failures, gateChecks, notices, updated };
+  if (options.installationToken !== null) {
+    env.INSTALLATION_TOKEN = options.installationToken ?? "installation-token";
+  }
+  await execute(github, context, core, getOctokit, { env });
+  return {
+    created,
+    errors,
+    failures,
+    gateChecks,
+    installationTokens,
+    notices,
+    updated,
+  };
 }
 
 async function runRoute(
@@ -496,7 +588,13 @@ describe("trusted CodeRabbit workflow", () => {
       "pull-requests": "read",
     });
     expect(workflow.jobs.reconcile.environment).toBe("coderabbit-gate");
-    expect(await Bun.file(gatePath).text()).not.toContain("actions/checkout");
+    const gateText = await Bun.file(gatePath).text();
+    expect(gateText).not.toContain("actions/checkout");
+    expect(gateText).toContain("Mint the selected-repository inspection token");
+    expect(gateText).toContain("owner: ${{ github.repository_owner }}");
+    expect(gateText).toContain("permission-contents: read");
+    expect(gateText).toContain("getOctokit(installationToken)");
+    expect(gateText).toContain('"GET /installation/repositories"');
     expect(await loadRouteScript()).toContain('context.eventName === "push"');
     expect(signal.on.pull_request_review?.branches).toBeUndefined();
     expect(signal.on.pull_request_review?.types).toEqual([
@@ -516,8 +614,9 @@ describe("trusted CodeRabbit workflow", () => {
       ],
     });
     expect(result.failures).toEqual([]);
+    expect(result.installationTokens).toEqual(["installation-token"]);
     expect(result.created[0]).toMatchObject({
-      external_id: `alitycs-coderabbit-gate/v8:7:${headSha}:99:1`,
+      external_id: `alitycs-coderabbit-gate/v9:7:${headSha}:99:1`,
       head_sha: headSha,
       name: gateName,
       status: "in_progress",
@@ -665,7 +764,7 @@ describe("trusted CodeRabbit workflow", () => {
     expect(result.updated.at(-1)).toMatchObject({ conclusion: "failure" });
   });
 
-  test("reuses one app-owned exact-head check across reconciliations", async () => {
+  test("supersedes a completed check and creates a fresh canonical check", async () => {
     const result = await runGate({
       existingGateCheckIds: [401],
       reviews: [
@@ -674,14 +773,15 @@ describe("trusted CodeRabbit workflow", () => {
       runId: 100,
     });
 
-    expect(result.created).toEqual([]);
+    expect(result.created).toHaveLength(1);
     expect(result.updated[0]).toMatchObject({
       check_run_id: 401,
-      external_id: `alitycs-coderabbit-gate/v8:7:${headSha}:100:1`,
-      status: "in_progress",
+      conclusion: "neutral",
+      name: `${gateName} (superseded 401)`,
+      status: "completed",
     });
     expect(result.updated.at(-1)).toMatchObject({
-      check_run_id: 401,
+      check_run_id: 501,
       conclusion: "success",
       status: "completed",
     });
@@ -699,16 +799,53 @@ describe("trusted CodeRabbit workflow", () => {
       ],
     });
 
-    expect(result.created).toEqual([]);
+    expect(result.created).toHaveLength(1);
     expect(
       result.gateChecks.filter((checkRun) => checkRun.name === gateName),
-    ).toEqual([expect.objectContaining({ conclusion: "success", id: 401 })]);
-    expect(result.gateChecks).toContainEqual(
+    ).toEqual([expect.objectContaining({ conclusion: "success", id: 501 })]);
+    for (const id of [401, 402]) {
+      expect(result.gateChecks).toContainEqual(
+        expect.objectContaining({
+          conclusion: "neutral",
+          id,
+          name: `${gateName} (superseded ${id})`,
+        }),
+      );
+    }
+  });
+
+  test("yields without creating when a newer reconciliation already owns the check", async () => {
+    const result = await runGate({
+      existingGateCheckIds: [401],
+      existingGateExternalIds: [
+        `alitycs-coderabbit-gate/v9:7:${headSha}:100:1`,
+      ],
+      runId: 99,
+    });
+
+    expect(result.created).toEqual([]);
+    expect(result.updated).toEqual([]);
+    expect(result.notices).toContain(
+      "A newer reconciliation already owns the exact-head gate check.",
+    );
+  });
+
+  test("supersedes its fresh check when a newer claim appears concurrently", async () => {
+    const result = await runGate({ newerGateAppearsAfterCreate: true, runId: 99 });
+
+    expect(result.created).toHaveLength(1);
+    expect(result.updated).toContainEqual(
       expect.objectContaining({
+        check_run_id: 501,
         conclusion: "neutral",
-        id: 402,
-        name: `${gateName} (superseded 402)`,
+        name: `${gateName} (superseded 501)`,
       }),
+    );
+    expect(result.gateChecks.filter((checkRun) => checkRun.name === gateName)).toEqual([
+      expect.objectContaining({ id: 502 }),
+    ]);
+    expect(result.notices).toContain(
+      "A newer reconciliation won the exact-head gate claim.",
     );
   });
 
@@ -772,7 +909,11 @@ describe("trusted CodeRabbit workflow", () => {
   });
 
   test("fails before publishing when the dedicated app identity is missing", async () => {
-    for (const identity of [{ gateAppId: null }, { gateAppSlug: null }]) {
+    for (const identity of [
+      { gateAppId: null },
+      { gateAppSlug: null },
+      { installationToken: null },
+    ]) {
       const result = await runGate(identity);
       expect(result.failures).toEqual([
         "The dedicated gate app identity is unavailable.",
@@ -786,6 +927,40 @@ describe("trusted CodeRabbit workflow", () => {
     const result = await runGate({ environmentMainOnly: false });
     expect(result.failures).toEqual([
       "The coderabbit-gate environment must allow exactly the main branch.",
+    ]);
+    expect(result.updated.at(-1)).toMatchObject({ conclusion: "failure" });
+  });
+
+  test("fails when the selected installation omits the current SDK", async () => {
+    const result = await runGate({ installationMissingCurrent: true });
+
+    expect(result.failures[0]).toContain(
+      "The Gate App installation must contain this repository",
+    );
+    expect(result.updated.at(-1)).toMatchObject({ conclusion: "failure" });
+  });
+
+  test("fails when the selected installation contains a non-SDK repository", async () => {
+    const result = await runGate({ invalidSelectedRepository: true });
+
+    expect(result.failures[0]).toContain("alitycs-api");
+    expect(result.updated.at(-1)).toMatchObject({ conclusion: "failure" });
+  });
+
+  test("fails when selected-repository membership changes during evaluation", async () => {
+    const result = await runGate({ installationChangesDuringEvaluation: true });
+
+    expect(result.failures).toEqual([
+      "The Gate App selected-repository boundary changed or became unsafe during evaluation.",
+    ]);
+    expect(result.updated.at(-1)).toMatchObject({ conclusion: "failure" });
+  });
+
+  test("rechecks selected-repository membership before the conclusion", async () => {
+    const result = await runGate({ installationChangesBeforeConclusion: true });
+
+    expect(result.failures).toEqual([
+      "The Gate App selected-repository boundary changed or became unsafe before the gate conclusion.",
     ]);
     expect(result.updated.at(-1)).toMatchObject({ conclusion: "failure" });
   });
@@ -979,6 +1154,21 @@ describe("trusted CodeRabbit workflow", () => {
       'readonly protected_workflow_tree=".github/workflows"',
     );
     expect(audit).toContain('.repository_selection == "selected"');
+    expect(audit).toContain("ALITYCS_CODERABBIT_GATE_CANARY_SHA");
+    expect(audit).toContain('"alitycs-coderabbit-gate/v9:"');
+    expect(audit).toContain("fromdateiso8601");
+    expect(audit).toContain('-H "Time-Zone: UTC"');
+    expect(audit).toContain("$installation_updated_at");
+    expect(audit).toContain("$app_updated_at");
+    expect(audit).toContain("$gate_secret_updated_at");
+    expect(audit).toContain("$secret_updated_at");
+    for (const cutoff of [
+      "$installation_updated_at",
+      "$app_updated_at",
+      "$secret_updated_at",
+    ]) {
+      expect(audit).toContain(`> (${cutoff} | epoch)`);
+    }
     expect(audit).toContain(".required_status_checks.checks | length == 3");
     expect(audit).toContain(".permissions == {");
     expect(audit).not.toContain(".permissions.checks ==");

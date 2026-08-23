@@ -56,9 +56,14 @@ policies with exactly one `main` branch rule. The App has only Actions read, Che
 Contents read, Pull requests read, and implicit Metadata read permissions, with webhooks disabled
 and no subscribed events.
 Its organization installation uses selected repositories and is limited to public Alitycs SDKs;
-never broaden the Gate App to every organization repository. The raw private key can mint tokens
-for any repository selected in that installation, even though the workflow requests a token scoped
-to its current repository.
+never broaden the Gate App to every organization repository. The workflow mints one owner-scoped,
+Contents-read token and authenticates a separate Octokit client with it only to enumerate the
+complete selected-repository installation, then mints a separate write token scoped to the current
+repository for gate evaluation. The evaluator requires the current repository to be selected,
+rejects every selected repository that is not an active, public, independent `alitycs-sdk-*`
+repository on `main`, and verifies that membership again before reading reviews and immediately
+before a gate conclusion. The raw private key can mint tokens for any selected repository, so this
+live boundary check and the main-only environment are part of the authorization model.
 
 The organization-wide CodeRabbit App installation is also an exact audited allowlist. Its
 permissions are Actions read, Checks write, Contents write, Discussions read, Issues write,
@@ -76,13 +81,14 @@ from satisfying the app-bound `Verify` or `Review` names.
 Neither workflow uses an Actions concurrency key because those keys are repository-global and can
 be joined by pull-request-controlled workflows. Only the dedicated App emits the stable
 `Alitycs CodeRabbit Gate` name; no Actions job or commit status shares it. Each exact head has one
-canonical App-owned check. Every reconciliation resets that check to `in_progress`, claims it with
-a run-specific external ID, re-reads current pull-request and review state, and completes it.
-Race-created duplicates are reset and renamed to unique superseded names before success, so branch
-protection never depends on same-name check creation order. The rollout canary must prove that
-GitHub supports completed → in-progress reuse and that required-check mergeability follows the
-failure → approval → dismissal → approval sequence. Bind `Verify` and `Review` only to the GitHub
-Actions app.
+canonical App-owned check. Every reconciliation renames prior canonical checks to unique
+`superseded` names with a neutral conclusion, creates a fresh `in_progress` check, claims it with a
+run-and-attempt-ranked external ID, re-reads current pull-request and review state, and completes
+it. Concurrent older runs yield and supersede their own fresh checks; ownership and uniqueness are
+re-read before any conclusion. Branch protection therefore never depends on same-name check
+creation order or reopening a completed check. The rollout canary must prove this lifecycle and
+that required-check mergeability follows the failure → approval → dismissal → approval sequence.
+Bind `Verify` and `Review` only to the GitHub Actions app.
 
 As defense in depth for GitHub's commit-scoped check model, the gate also fails closed when the same
 head commit belongs to more than one open pull request targeting `main`. Native branch protection
@@ -97,8 +103,9 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
 ## Seed a future SDK
 
 1. Create a public `alitycs/alitycs-sdk-<name>` repository with `main` as its default branch,
-   install CodeRabbit, and add only that SDK to the selected-repository installation of
-   `Alitycs CodeRabbit Gate`. Do not change the Gate App installation to all repositories.
+   install CodeRabbit, and add that SDK alongside the already enrolled SDKs in the
+   selected-repository installation of `Alitycs CodeRabbit Gate`. Do not change the Gate App
+   installation to all repositories or select a non-SDK repository.
 2. Add a complete, standalone `.coderabbit.yaml`, both protected gate workflows, their policy
    tests, CI, dependency review, release automation, `README.md`, `CONTRIBUTING.md`,
    `SECURITY.md`, a pull-request template, and `scripts/verify-workflow-pins.rb`. Pin every GitHub
@@ -118,11 +125,13 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
    separate human-authored canary pull request. Observe an initial gate failure, obtain a formal
    exact-head CodeRabbit approval and successful gate, dismiss it and observe a newer gate failure,
    then obtain a fresh approval and successful gate. Verify there is exactly one stable App-owned
-   gate check for the head, that a completed check reopens as `in_progress`, and that `Verify` and
-   `Review` stay bound to the same exact head throughout. Repeat with simultaneous manual and
-   review-signal triggers, verify a later reconciliation recovers from a deliberately interrupted
-   run, and exercise a real fork pull request so fork routing and required-check recognition are
-   observed rather than inferred.
+   gate check for the head, that each completed check is renamed and replaced by a fresh
+   `in_progress` canonical check, and that `Verify` and `Review` stay bound to the same exact head
+   throughout. Repeat with simultaneous manual and review-signal triggers, verify a later
+   reconciliation recovers from a deliberately interrupted run, and exercise a real fork pull
+   request so fork routing and required-check recognition are observed rather than inferred. Once
+   the canary succeeds, set repository variable `ALITYCS_CODERABBIT_GATE_CANARY_SHA` to its full
+   lowercase head SHA.
 6. Require those three checks with strict branch updates. While the gate is required, repeat the
    dismissal and fresh-approval transitions and verify the pull request becomes unmergeable and
    mergeable respectively. Enforce protection for administrators,
@@ -135,10 +144,15 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
    again.
 8. From a clean checkout synchronized to `main`, run
    `./scripts/audit-coderabbit-github.sh alitycs/alitycs-sdk-<name>`. It fails unless the App
-   selected-repository installation and permissions, environment policy, variables, secret
-   metadata, protected policy blob and workflow tree, immutable action references, app-bound
-   required checks, and branch protections match this policy. The audit requires Bash, Git,
-   GitHub CLI, jq, and Ruby with its standard-library Psych parser.
+   selected-repository mode and permissions, fresh live canary proof of the exact selection,
+   environment policy, variables, secret metadata, protected policy blob and workflow tree,
+   immutable action references, app-bound required checks, and branch protections match this
+   policy. Changing the Gate App, its selected repositories, or an SDK's private-key environment
+   secret makes the affected older canary proof stale; rerun a canary and refresh
+   `ALITYCS_CODERABBIT_GATE_CANARY_SHA` in every affected SDK. Audit timestamps are read in UTC so
+   the comparison is independent of the GitHub CLI client's local timezone, and the canary must
+   complete strictly after every relevant update to fail closed on same-second ambiguity. The audit
+   requires Bash, Git, GitHub CLI, jq, and Ruby with its standard-library Psych parser.
 
 ## Upgrade the gate
 
@@ -153,4 +167,5 @@ app-bound required check only after the canary succeeds. Never disable the surro
 signature, history, conversation, force-push, or deletion protections.
 
 For app-key rotation, add a new GitHub App private key, update the environment secret in every SDK,
-run a canary in each repository, and only then revoke the old key.
+run a canary and refresh `ALITYCS_CODERABBIT_GATE_CANARY_SHA` in each repository, and only then
+revoke the old key.
