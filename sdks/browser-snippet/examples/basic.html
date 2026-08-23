@@ -152,7 +152,7 @@ alitycs.track('event1').track('event2').identify('user_id');
     }
 
     function identifyUser() {
-      alitycs.identify('user_' + Math.floor(Math.random() * 1000), {
+      alitycs.identify('user_' + crypto.randomUUID(), {
         email: 'demo@example.com',
         plan: 'premium'
       });
