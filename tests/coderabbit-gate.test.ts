@@ -1,4 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 interface ReviewFixture {
   commit_id: string;
@@ -48,6 +58,8 @@ const gatePath = ".github/workflows/coderabbit-gate.yml";
 const reviewSignalPath = ".github/workflows/coderabbit-review-event.yml";
 const workflowTreePath = ".github/workflows";
 const protectedObjects = [policyPath, workflowTreePath];
+const repositoryRoot = process.cwd();
+const pinVerifierPath = join(repositoryRoot, "scripts/verify-workflow-pins.rb");
 const AsyncFunction = Object.getPrototypeOf(async () => undefined)
   .constructor as new (
   ...arguments_: string[]
@@ -96,10 +108,17 @@ async function loadGateScript() {
   return script;
 }
 
-async function runPinVerifier(input?: string, label = "fixture.yml") {
-  const command = ["ruby", "scripts/verify-workflow-pins.rb"];
+async function runPinVerifier(
+  input?: string,
+  label = "fixture.yml",
+  cwd = repositoryRoot,
+  gitRef?: string,
+) {
+  const command = ["ruby", pinVerifierPath];
   if (input !== undefined) command.push("--stdin", label);
+  else if (gitRef !== undefined) command.push("--git-ref", gitRef);
   const child = Bun.spawn(command, {
+    cwd,
     stderr: "pipe",
     stdin: input === undefined ? "ignore" : new TextEncoder().encode(input),
     stdout: "pipe",
@@ -110,6 +129,28 @@ async function runPinVerifier(input?: string, label = "fixture.yml") {
     new Response(child.stderr).text(),
   ]);
   return { exitCode, stderr, stdout };
+}
+
+async function runGit(cwd: string, ...arguments_: string[]) {
+  const child = Bun.spawn(["git", ...arguments_], {
+    cwd,
+    env: {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: join(cwd, ".gitconfig-isolated"),
+      GIT_CONFIG_NOSYSTEM: "1",
+    },
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  const [exitCode, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  if (exitCode !== 0) {
+    throw new Error(`git ${arguments_.join(" ")} failed: ${stderr}`);
+  }
+  return stdout.trim();
 }
 
 async function runGate(options: RunOptions = {}) {
@@ -1363,6 +1404,10 @@ describe("trusted CodeRabbit workflow", () => {
     expect(workflow).toContain(
       "https://coderabbit.ai/integrations/schema.v2.json",
     );
+    expect(workflow).toContain("--proto-redir '=https'");
+    expect(workflow).toContain("--retry 3");
+    expect(workflow).toContain("--retry-connrefused");
+    expect(workflow).toContain("--max-time 60");
     expect(workflow).toContain('cmp --silent "$pinned_schema" "$live_schema"');
     expect(workflow).not.toMatch(/readonly [a-z_]+="\$\(/);
     expect(docs).toContain("deliberately not a required merge check");
@@ -1372,6 +1417,27 @@ describe("trusted CodeRabbit workflow", () => {
     expect(policy).toMatch(
       /Initial SDK\s+bootstrap follows the documented seed procedure/,
     );
+  });
+
+  test("pins every GitHub-hosted job to an explicit runner image", async () => {
+    const workflowDirectory = ".github/workflows";
+    const workflowNames = (await readdir(workflowDirectory)).filter((name) =>
+      /\.ya?ml$/.test(name),
+    );
+    const workflowCorpus = (
+      await Promise.all(
+        workflowNames.map((name) =>
+          Bun.file(join(workflowDirectory, name)).text(),
+        ),
+      )
+    ).join("\n");
+    const docs = await Bun.file("docs/coderabbit.md").text();
+    const policy = await Bun.file(".coderabbit.yaml").text();
+
+    expect(workflowCorpus).not.toContain("ubuntu-latest");
+    expect(workflowCorpus.match(/runs-on: ubuntu-24\.04/g)?.length).toBe(8);
+    expect(docs).toContain("do not use a moving `*-latest` label");
+    expect(policy).toContain("runner labels pinned to explicit OS versions");
   });
 
   test("audits the synchronized commit and exact app allowlists", async () => {
@@ -1665,5 +1731,133 @@ runs:
     expect(invalidLocalDockerAction.stderr).toContain(
       'invalid Docker action image "../Dockerfile"',
     );
+  });
+
+  test("requires local Dockerfiles to be regular tracked files", async () => {
+    const repository = await mkdtemp(
+      join(tmpdir(), "alitycs-workflow-pin-fixture-"),
+    );
+    const actionDirectory = join(repository, "fixture");
+    const actionPath = join(actionDirectory, "action.yml");
+    const dockerfilePath = join(actionDirectory, "Dockerfile");
+    const targetPath = join(actionDirectory, "real.Dockerfile");
+    const missingDirectory = join(actionDirectory, "missing");
+    const writeAction = (image: string) =>
+      writeFile(
+        actionPath,
+        `name: Local Docker fixture\ndescription: Verifies tracked file modes\nruns:\n  using: docker\n  image: ${image}\n`,
+      );
+
+    try {
+      await mkdir(actionDirectory, { recursive: true });
+      await runGit(repository, "init", "--quiet");
+      await runGit(repository, "config", "user.name", "Alitycs CI");
+      await runGit(repository, "config", "user.email", "ci@alitycs.com");
+      await runGit(repository, "config", "commit.gpgSign", "false");
+      await runGit(repository, "config", "core.hooksPath", ".git/no-hooks");
+
+      await writeAction("Dockerfile");
+      await writeFile(dockerfilePath, "FROM scratch\n");
+      await runGit(repository, "add", ".");
+      await runGit(
+        repository,
+        "commit",
+        "--no-gpg-sign",
+        "--quiet",
+        "-m",
+        "Add regular Dockerfile",
+      );
+      const regularHead = await runGit(repository, "rev-parse", "HEAD");
+
+      const regularWorktree = await runPinVerifier(
+        undefined,
+        "fixture.yml",
+        repository,
+      );
+      expect(regularWorktree.exitCode).toBe(0);
+      expect(regularWorktree.stdout).toContain("1 local");
+      const regularCommit = await runPinVerifier(
+        undefined,
+        "fixture.yml",
+        repository,
+        regularHead,
+      );
+      expect(regularCommit.exitCode).toBe(0);
+
+      await rm(dockerfilePath);
+      await writeFile(targetPath, "FROM scratch\n");
+      await symlink("real.Dockerfile", dockerfilePath);
+      const replacedByWorktreeSymlink = await runPinVerifier(
+        undefined,
+        "fixture.yml",
+        repository,
+      );
+      expect(replacedByWorktreeSymlink.exitCode).toBe(1);
+      expect(replacedByWorktreeSymlink.stderr).toContain(
+        "does not resolve to a regular tracked Dockerfile",
+      );
+      const unchangedCommit = await runPinVerifier(
+        undefined,
+        "fixture.yml",
+        repository,
+        regularHead,
+      );
+      expect(unchangedCommit.exitCode).toBe(0);
+
+      await rm(dockerfilePath);
+      await rm(targetPath);
+      await writeFile(dockerfilePath, "FROM scratch\n");
+      await writeAction("missing/Dockerfile");
+      await mkdir(missingDirectory);
+      await writeFile(join(missingDirectory, "Dockerfile"), "FROM scratch\n");
+      await runGit(repository, "add", "fixture/action.yml");
+      await runGit(
+        repository,
+        "commit",
+        "--no-gpg-sign",
+        "--quiet",
+        "-m",
+        "Reference untracked Dockerfile",
+      );
+      const missingHead = await runGit(repository, "rev-parse", "HEAD");
+
+      for (const result of [
+        await runPinVerifier(undefined, "fixture.yml", repository),
+        await runPinVerifier(undefined, "fixture.yml", repository, missingHead),
+      ]) {
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain(
+          "does not resolve to a regular tracked Dockerfile",
+        );
+      }
+
+      await rm(missingDirectory, { recursive: true });
+      await writeAction("Dockerfile");
+      await rm(dockerfilePath);
+      await writeFile(targetPath, "FROM scratch\n");
+      await symlink("real.Dockerfile", dockerfilePath);
+      await runGit(repository, "add", "--all");
+      await runGit(
+        repository,
+        "commit",
+        "--no-gpg-sign",
+        "--quiet",
+        "-m",
+        "Add Dockerfile symlink",
+      );
+      const symlinkHead = await runGit(repository, "rev-parse", "HEAD");
+
+      for (const result of [
+        await runPinVerifier(undefined, "fixture.yml", repository),
+        await runPinVerifier(undefined, "fixture.yml", repository, symlinkHead),
+      ]) {
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain(
+          "does not resolve to a regular tracked Dockerfile",
+        );
+      }
+    } finally {
+      await rm(repository, { force: true, recursive: true });
+    }
   });
 });

@@ -128,7 +128,8 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
    Action or reusable-workflow `uses:` reference to a full lowercase 40-character commit SHA and
    every `docker://` image, including Docker action metadata `runs.image`, to a full lowercase
    SHA-256 digest. A local `runs.image` path must resolve to a tracked file named `Dockerfile` at
-   the audited commit. Run
+   the audited commit. Pin GitHub-hosted jobs to an explicit supported runner label such as
+   `ubuntu-24.04`; do not use a moving `*-latest` label. Run
    `./scripts/verify-workflow-pins.rb`, `./scripts/validate-coderabbit.sh`, and the repository policy
    tests before merging the baseline. The structural verifier covers YAML quoting, flow mappings,
    aliases, duplicate keys, tracked local composite-action metadata, and Docker action images.

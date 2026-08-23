@@ -11,7 +11,7 @@ permissions:
 jobs:
   compare:
     name: Compare pinned and live schemas
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Check out the repository
@@ -35,7 +35,11 @@ jobs:
             --show-error \
             --location \
             --proto '=https' \
+            --proto-redir '=https' \
             --tlsv1.2 \
+            --retry 3 \
+            --retry-connrefused \
+            --max-time 60 \
             --output "$live_schema" \
             https://coderabbit.ai/integrations/schema.v2.json
 

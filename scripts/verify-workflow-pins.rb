@@ -11,6 +11,7 @@ DOCKER_ACTION_REFERENCE = /\Adocker:\/\/[^@\s]+@sha256:[0-9a-f]{64}\z/
 SAME_COMMIT_REFERENCE = %r{\A(?:\./|\$/)[^@\s]+\z}
 WORKFLOW_PATH = %r{\A\.github/workflows/.+\.ya?ml\z}
 ACTION_METADATA_PATH = %r{(?:\A|/)action\.ya?ml\z}
+REGULAR_FILE_MODES = Set.new(%w[100644 100755]).freeze
 
 options = {}
 parser =
@@ -44,21 +45,51 @@ def policy_path?(path)
   path.match?(WORKFLOW_PATH) || path.match?(ACTION_METADATA_PATH)
 end
 
+def tracked_entries_for(options)
+  entries = Hash.new { |paths, path| paths[path] = [] }
+  if options[:git_ref]
+    git_output("ls-tree", "-rz", options[:git_ref]).split("\0").each do |record|
+      metadata, path = record.split("\t", 2)
+      mode, type, object = metadata.to_s.split(" ", 3)
+      raise "could not parse git tree entry #{record.inspect}" if path.nil? || object.nil?
+
+      entries[path] << { mode: mode, stage: nil, type: type }
+    end
+  else
+    git_output("ls-files", "--stage", "-z").split("\0").each do |record|
+      metadata, path = record.split("\t", 2)
+      mode, object, stage = metadata.to_s.split(" ", 3)
+      raise "could not parse git index entry #{record.inspect}" if path.nil? || stage.nil?
+
+      entries[path] << { mode: mode, stage: stage, type: object.nil? ? nil : "blob" }
+    end
+  end
+  entries
+end
+
+def regular_tracked_file?(entries, path, options)
+  records = entries.fetch(path, [])
+  return false unless records.one?
+
+  entry = records.first
+  return false unless REGULAR_FILE_MODES.include?(entry[:mode])
+  return entry[:type] == "blob" if options[:git_ref]
+
+  entry[:stage] == "0" && File.file?(path) && !File.symlink?(path)
+end
+
 def sources_for(options)
   return [{ options[:stdin] => $stdin.read }, nil] if options[:stdin]
 
-  listing =
-    if options[:git_ref]
-      git_output("ls-tree", "-rz", "--name-only", options[:git_ref])
-    else
-      git_output("ls-files", "-z")
-    end
-  tracked_paths = listing.split("\0")
-  paths = tracked_paths.select { |path| policy_path?(path) }.sort
+  tracked_entries = tracked_entries_for(options)
+  paths = tracked_entries.keys.select { |path| policy_path?(path) }.sort
   raise "no tracked workflow or action metadata files were found" if paths.empty?
 
   sources =
     paths.to_h do |path|
+      unless regular_tracked_file?(tracked_entries, path, options)
+        raise "#{path} is not a regular tracked workflow or action metadata file"
+      end
       content =
         if options[:git_ref]
           git_output("show", "#{options[:git_ref]}:#{path}")
@@ -67,7 +98,7 @@ def sources_for(options)
         end
       [path, content]
     end
-  [sources, tracked_paths.to_set]
+  [sources, tracked_entries]
 end
 
 def document_context(document)
@@ -203,7 +234,7 @@ def local_dockerfile_path(metadata_path, reference)
 end
 
 begin
-  sources, tracked_paths = sources_for(options)
+  sources, tracked_entries = sources_for(options)
   errors = []
   local_count = 0
   pinned_count = 0
@@ -222,11 +253,12 @@ begin
               errors << "#{path}: #{location} uses an unpinned Docker image #{reference.inspect}"
             end
           elsif (dockerfile_path = local_dockerfile_path(path, reference))
-            if options[:stdin] || tracked_paths.include?(dockerfile_path)
+            if options[:stdin] || regular_tracked_file?(tracked_entries, dockerfile_path, options)
               local_count += 1
             else
               errors <<
-                "#{path}: #{location} references an untracked Dockerfile #{reference.inspect}"
+                "#{path}: #{location} does not resolve to a regular tracked Dockerfile " \
+                  "#{reference.inspect}"
             end
           else
             errors << "#{path}: #{location} has an invalid Docker action image #{reference.inspect}"

@@ -109,8 +109,8 @@ reviews:
         seed procedure. After that baseline is on main, ordinary pull requests must not change or
         add workflows; use the documented two-phase upgrade procedure. Keep permissions
         least-privileged, GitHub and reusable actions pinned to full commit SHAs, Docker actions
-        pinned to SHA-256 digests, CI deterministic, and releases gated on the complete verification
-        and package-integrity suite.
+        pinned to SHA-256 digests, GitHub-hosted runner labels pinned to explicit OS versions, CI
+        deterministic, and releases gated on the complete verification and package-integrity suite.
 
   auto_review:
     enabled: true

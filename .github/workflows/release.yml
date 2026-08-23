@@ -15,7 +15,7 @@ jobs:
   build:
     name: Build release artifacts
     if: github.repository == 'alitycs/alitycs-sdk-js'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
       contents: read
@@ -68,7 +68,7 @@ jobs:
   release:
     name: Attest and publish release
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       attestations: write
