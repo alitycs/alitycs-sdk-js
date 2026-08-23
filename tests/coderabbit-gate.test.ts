@@ -1295,6 +1295,20 @@ describe("trusted CodeRabbit workflow", () => {
       has_pull_requests: "false",
       pull_requests: "[]",
     });
+
+    for (const identity of [
+      { canonicalName: "Attacker review event" },
+      { canonicalPath: ".github/workflows/attacker.yml" },
+    ]) {
+      const spoofed = await runRoute(identity);
+      expect(spoofed.failures).toEqual([
+        "Rejected a non-canonical review-signal workflow run.",
+      ]);
+      expect(spoofed.outputs).toEqual({
+        has_pull_requests: "false",
+        pull_requests: "[]",
+      });
+    }
   });
 
   test("fans a main push out to every open pull request", async () => {
