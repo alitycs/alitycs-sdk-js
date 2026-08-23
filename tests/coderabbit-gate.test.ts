@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readdir,
@@ -59,7 +60,28 @@ const reviewSignalPath = ".github/workflows/coderabbit-review-event.yml";
 const workflowTreePath = ".github/workflows";
 const protectedObjects = [policyPath, workflowTreePath];
 const repositoryRoot = process.cwd();
+const auditScriptPath = join(
+  repositoryRoot,
+  "scripts/audit-coderabbit-github.sh",
+);
 const pinVerifierPath = join(repositoryRoot, "scripts/verify-workflow-pins.rb");
+const validReleaseTagRuleset = {
+  bypass_actors: [],
+  conditions: {
+    ref_name: {
+      exclude: [],
+      include: ["refs/tags/v*"],
+    },
+  },
+  current_user_can_bypass: "never",
+  enforcement: "active",
+  id: 42,
+  name: "Immutable release tags",
+  rules: [{ type: "update" }, { type: "deletion" }],
+  source: "alitycs/alitycs-sdk-js",
+  source_type: "Repository",
+  target: "tag",
+};
 const AsyncFunction = Object.getPrototypeOf(async () => undefined)
   .constructor as new (
   ...arguments_: string[]
@@ -129,6 +151,94 @@ async function runPinVerifier(
     new Response(child.stderr).text(),
   ]);
   return { exitCode, stderr, stdout };
+}
+
+async function runAuditWithRulesetFixture(
+  detail: Record<string, unknown>,
+  list: unknown = [
+    [
+      {
+        id: 42,
+        name: "Immutable release tags",
+      },
+    ],
+  ],
+) {
+  const fixtureDirectory = await mkdtemp(
+    join(tmpdir(), "alitycs-coderabbit-audit-"),
+  );
+  const binDirectory = join(fixtureDirectory, "bin");
+  const detailPath = join(fixtureDirectory, "ruleset-detail.json");
+  const listPath = join(fixtureDirectory, "ruleset-list.json");
+  const ghPath = join(binDirectory, "gh");
+  let child: ReturnType<typeof Bun.spawn> | undefined;
+  let timedOut = false;
+
+  try {
+    await mkdir(binDirectory);
+    await Promise.all([
+      writeFile(detailPath, `${JSON.stringify(detail)}\n`),
+      writeFile(listPath, `${JSON.stringify(list)}\n`),
+      writeFile(
+        ghPath,
+        [
+          "#!/usr/bin/env bash",
+          "set -euo pipefail",
+          'endpoint="${!#}"',
+          'case "$endpoint" in',
+          '\t"repos/alitycs/alitycs-sdk-js")',
+          '\t\tprintf \'%s\\n\' \'{"private":false,"default_branch":"main"}\'',
+          "\t\t;;",
+          '\t"repos/alitycs/alitycs-sdk-js/rulesets?includes_parents=false&targets=tag&per_page=100")',
+          '\t\tcat "$FAKE_RULESET_LIST"',
+          "\t\t;;",
+          '\t"repos/alitycs/alitycs-sdk-js/rulesets/42")',
+          '\t\tcat "$FAKE_RULESET_DETAIL"',
+          "\t\t;;",
+          '\t"orgs/alitycs/installations?per_page=100")',
+          "\t\tprintf '%s\\n' '[{\"installations\":[]}]'",
+          "\t\t;;",
+          "\t*)",
+          "\t\tprintf 'unexpected gh endpoint: %s\\n' \"$endpoint\" >&2",
+          "\t\texit 86",
+          "\t\t;;",
+          "esac",
+          "",
+        ].join("\n"),
+      ),
+    ]);
+    await chmod(ghPath, 0o755);
+
+    child = Bun.spawn(["bash", auditScriptPath, "alitycs/alitycs-sdk-js"], {
+      cwd: repositoryRoot,
+      env: {
+        ...process.env,
+        FAKE_RULESET_DETAIL: detailPath,
+        FAKE_RULESET_LIST: listPath,
+        PATH: `${binDirectory}:${process.env.PATH ?? ""}`,
+      },
+      stderr: "pipe",
+      stdout: "pipe",
+    });
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      child?.kill(9);
+    }, 30_000);
+    try {
+      const [exitCode, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      if (timedOut) throw new Error("CodeRabbit repository audit timed out");
+      return { exitCode, stderr, stdout };
+    } finally {
+      clearTimeout(timeout);
+    }
+  } finally {
+    child?.kill(9);
+    await rm(fixtureDirectory, { force: true, recursive: true });
+  }
 }
 
 async function runGit(cwd: string, ...arguments_: string[]) {
@@ -692,10 +802,10 @@ describe("trusted CodeRabbit workflow", () => {
 
     expect(release.permissions).toEqual({});
     expect(release.jobs.build.permissions).toEqual({ contents: "read" });
-    expect(Object.keys(release.jobs.build.outputs).sort()).toEqual([
-      "tag_commit",
-      "tag_object",
-    ]);
+    expect(release.jobs.build.outputs).toEqual({
+      tag_commit: "${{ steps.verify_tag.outputs.tag_commit }}",
+      tag_object: "${{ steps.verify_tag.outputs.tag_object }}",
+    });
     expect(release.jobs.release.needs).toBe("build");
     expect(release.jobs.release.permissions).toEqual({
       attestations: "write",
@@ -707,9 +817,7 @@ describe("trusted CodeRabbit workflow", () => {
       'git fetch --no-tags --force origin "+refs/heads/main:refs/remotes/origin/main"',
     );
     expect(releaseText).toContain('git cat-file -t "$GITHUB_REF"');
-    expect(releaseText).toContain(
-      'if [[ "$tag_commit" != "$GITHUB_SHA" ]]',
-    );
+    expect(releaseText).toContain('if [[ "$tag_commit" != "$GITHUB_SHA" ]]');
     expect(releaseText).toContain(
       'git merge-base --is-ancestor "$tag_commit" "$main_commit"',
     );
@@ -1489,9 +1597,9 @@ describe("trusted CodeRabbit workflow", () => {
       '"repos/$repository/rulesets?includes_parents=false&targets=tag&per_page=100"',
     );
     expect(audit).toContain('.conditions.ref_name.include == ["refs/tags/v*"]');
-    expect(audit).toContain('(.bypass_actors // []) == []');
+    expect(audit).toContain("(.bypass_actors // []) == []");
     expect(audit).toContain('.current_user_can_bypass == "never"');
-    expect(audit).toContain('([.rules[].type] | sort)');
+    expect(audit).toContain("([.rules[].type] | sort)");
     expect(audit).not.toContain("update_allows_fetch_and_merge");
     expect(audit).toContain('.repository_selection == "selected"');
     expect(audit).toContain("ALITYCS_CODERABBIT_GATE_CANARY_SHA");
@@ -1563,6 +1671,88 @@ describe("trusted CodeRabbit workflow", () => {
         `fail "${variable} is missing from the repository"`,
       );
     }
+  });
+
+  test("validates live GitHub tag-ruleset response shapes", async () => {
+    const accepted = await runAuditWithRulesetFixture(validReleaseTagRuleset);
+    expect(accepted.exitCode).toBe(1);
+    expect(accepted.stderr).toContain(
+      "alitycs-coderabbit-gate is not installed for alitycs",
+    );
+    expect(accepted.stderr).not.toContain(
+      "must actively prevent v* tag updates and deletion without bypasses",
+    );
+
+    const invalidDetails: Array<[string, Record<string, unknown>]> = [
+      [
+        "bypass actor",
+        {
+          ...validReleaseTagRuleset,
+          bypass_actors: [
+            {
+              actor_id: 5,
+              actor_type: "RepositoryRole",
+              bypass_mode: "always",
+            },
+          ],
+        },
+      ],
+      [
+        "caller bypass",
+        { ...validReleaseTagRuleset, current_user_can_bypass: "always" },
+      ],
+      [
+        "inactive enforcement",
+        { ...validReleaseTagRuleset, enforcement: "disabled" },
+      ],
+      [
+        "wrong ref conditions",
+        {
+          ...validReleaseTagRuleset,
+          conditions: {
+            ref_name: {
+              exclude: ["refs/tags/v0.*"],
+              include: ["refs/tags/*"],
+            },
+          },
+        },
+      ],
+      [
+        "missing deletion rule",
+        { ...validReleaseTagRuleset, rules: [{ type: "update" }] },
+      ],
+      [
+        "extra rule",
+        {
+          ...validReleaseTagRuleset,
+          rules: [
+            { type: "update" },
+            { type: "deletion" },
+            { type: "non_fast_forward" },
+          ],
+        },
+      ],
+    ];
+
+    for (const [label, detail] of invalidDetails) {
+      const rejected = await runAuditWithRulesetFixture(detail);
+      expect(rejected.exitCode, label).toBe(1);
+      expect(rejected.stderr, label).toContain(
+        "Immutable release tags must actively prevent v* tag updates and deletion without bypasses",
+      );
+    }
+
+    const duplicateName = await runAuditWithRulesetFixture(
+      validReleaseTagRuleset,
+      [
+        [{ id: 42, name: "Immutable release tags" }],
+        [{ id: 43, name: "Immutable release tags" }],
+      ],
+    );
+    expect(duplicateName.exitCode).toBe(1);
+    expect(duplicateName.stderr).toContain(
+      "alitycs/alitycs-sdk-js must have exactly one Immutable release tags repository ruleset",
+    );
   });
 
   test("structurally rejects mutable GitHub and Docker action references", async () => {
