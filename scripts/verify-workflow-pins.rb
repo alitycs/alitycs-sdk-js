@@ -45,7 +45,7 @@ def policy_path?(path)
 end
 
 def sources_for(options)
-  return { options[:stdin] => $stdin.read } if options[:stdin]
+  return [{ options[:stdin] => $stdin.read }, nil] if options[:stdin]
 
   listing =
     if options[:git_ref]
@@ -53,18 +53,21 @@ def sources_for(options)
     else
       git_output("ls-files", "-z")
     end
-  paths = listing.split("\0").select { |path| policy_path?(path) }.sort
+  tracked_paths = listing.split("\0")
+  paths = tracked_paths.select { |path| policy_path?(path) }.sort
   raise "no tracked workflow or action metadata files were found" if paths.empty?
 
-  paths.to_h do |path|
-    content =
-      if options[:git_ref]
-        git_output("show", "#{options[:git_ref]}:#{path}")
-      else
-        File.binread(path)
-      end
-    [path, content]
-  end
+  sources =
+    paths.to_h do |path|
+      content =
+        if options[:git_ref]
+          git_output("show", "#{options[:git_ref]}:#{path}")
+        else
+          File.binread(path)
+        end
+      [path, content]
+    end
+  [sources, tracked_paths.to_set]
 end
 
 def document_context(document)
@@ -126,8 +129,8 @@ def sequence_items(node, context)
   resolved.children
 end
 
-def each_mapping_uses(node, context, reference_kind)
-  mapping_values(node, "uses", context).each do |key, value|
+def each_mapping_reference(node, name, context, reference_kind)
+  mapping_values(node, name, context).each do |key, value|
     location = "line #{key.start_line + 1}, column #{key.start_column + 1}"
     yield scalar_value(value, context), location, reference_kind
   end
@@ -135,14 +138,14 @@ end
 
 def each_steps_uses(node, context, &block)
   sequence_items(node, context).each do |step|
-    each_mapping_uses(step, context, :action, &block)
+    each_mapping_reference(step, "uses", context, :action, &block)
   end
 end
 
 def each_workflow_uses(root, context, &block)
   mapping_values(root, "jobs", context).each do |_jobs_key, jobs|
     mapping_entries(jobs, context).each do |_job_name, job|
-      each_mapping_uses(job, context, :workflow, &block)
+      each_mapping_reference(job, "uses", context, :workflow, &block)
       mapping_values(job, "steps", context).each do |_steps_key, steps|
         each_steps_uses(steps, context, &block)
       end
@@ -150,8 +153,9 @@ def each_workflow_uses(root, context, &block)
   end
 end
 
-def each_composite_action_uses(root, context, &block)
+def each_action_metadata_reference(root, context, &block)
   mapping_values(root, "runs", context).each do |_runs_key, runs|
+    each_mapping_reference(runs, "image", context, :docker_image, &block)
     mapping_values(runs, "steps", context).each do |_steps_key, steps|
       each_steps_uses(steps, context, &block)
     end
@@ -163,7 +167,7 @@ def each_action_uses(stream, path, &block)
     context = document_context(document)
     document.children.each do |root|
       if path.match?(ACTION_METADATA_PATH)
-        each_composite_action_uses(root, context, &block)
+        each_action_metadata_reference(root, context, &block)
       else
         each_workflow_uses(root, context, &block)
       end
@@ -186,8 +190,20 @@ def same_commit_candidates(reference, reference_kind)
   end
 end
 
+def local_dockerfile_path(metadata_path, reference)
+  path = reference.sub(%r{\A\./}, "")
+  segments = path.split("/", -1)
+  return nil if segments.empty?
+  return nil if segments.any? { |segment| segment.empty? || segment == "." || segment == ".." }
+  return nil unless segments.last == "Dockerfile"
+
+  directory = File.dirname(metadata_path)
+  relative_path = segments.join("/")
+  directory == "." ? relative_path : File.join(directory, relative_path)
+end
+
 begin
-  sources = sources_for(options)
+  sources, tracked_paths = sources_for(options)
   errors = []
   local_count = 0
   pinned_count = 0
@@ -196,7 +212,26 @@ begin
     begin
       stream = Psych.parse_stream(content, filename: path)
       each_action_uses(stream, path) do |reference, location, reference_kind|
-        if reference.nil?
+        if reference_kind == :docker_image
+          if reference.nil?
+            errors << "#{path}: #{location} image must be a scalar string"
+          elsif reference.start_with?("docker://")
+            if reference.match?(DOCKER_ACTION_REFERENCE)
+              pinned_count += 1
+            else
+              errors << "#{path}: #{location} uses an unpinned Docker image #{reference.inspect}"
+            end
+          elsif (dockerfile_path = local_dockerfile_path(path, reference))
+            if options[:stdin] || tracked_paths.include?(dockerfile_path)
+              local_count += 1
+            else
+              errors <<
+                "#{path}: #{location} references an untracked Dockerfile #{reference.inspect}"
+            end
+          else
+            errors << "#{path}: #{location} has an invalid Docker action image #{reference.inspect}"
+          end
+        elsif reference.nil?
           errors << "#{path}: #{location} uses must be a scalar string"
         elsif reference.start_with?("docker://")
           if reference.match?(DOCKER_ACTION_REFERENCE)

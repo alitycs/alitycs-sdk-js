@@ -126,12 +126,14 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
    automation, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, a pull-request template, and
    `scripts/verify-workflow-pins.rb`. Pin every GitHub
    Action or reusable-workflow `uses:` reference to a full lowercase 40-character commit SHA and
-   every `docker://` action to a full lowercase SHA-256 digest. Run
+   every `docker://` image, including Docker action metadata `runs.image`, to a full lowercase
+   SHA-256 digest. A local `runs.image` path must resolve to a tracked file named `Dockerfile` at
+   the audited commit. Run
    `./scripts/verify-workflow-pins.rb`, `./scripts/validate-coderabbit.sh`, and the repository policy
    tests before merging the baseline. The structural verifier covers YAML quoting, flow mappings,
-   aliases, duplicate keys, and tracked local composite-action metadata. Same-commit actions and
-   reusable workflows may use GitHub's `$/` syntax or the compatible `./` syntax; both are resolved
-   only to tracked files at the audited commit.
+   aliases, duplicate keys, tracked local composite-action metadata, and Docker action images.
+   Same-commit actions and reusable workflows may use GitHub's `$/` syntax or the compatible `./`
+   syntax; both are resolved only to tracked files at the audited commit.
    Copy the pinned schema snapshot, hash-locked validator requirements, and validation script as a
    reviewed set; do not switch validation back to a mutable schema URL or ambient executable.
 3. Create the `coderabbit-gate` environment with a selected deployment-branch policy for `main`

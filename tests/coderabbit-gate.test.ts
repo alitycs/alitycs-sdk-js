@@ -633,6 +633,8 @@ describe("trusted CodeRabbit workflow", () => {
 
   test("builds releases without publish credentials and only from main history", async () => {
     const releaseText = await Bun.file(".github/workflows/release.yml").text();
+    const readme = await Bun.file("README.md").text();
+    const releaseGuide = await Bun.file("docs/RELEASING.md").text();
     const release = Bun.YAML.parse(releaseText) as {
       permissions: Record<string, string>;
       jobs: {
@@ -662,6 +664,10 @@ describe("trusted CodeRabbit workflow", () => {
     );
     expect(releaseText).toMatch(/actions\/upload-artifact@[0-9a-f]{40}/);
     expect(releaseText).toMatch(/actions\/download-artifact@[0-9a-f]{40}/);
+    for (const documentation of [readme, releaseGuide]) {
+      expect(documentation).toContain("vMAJOR.MINOR.PATCH-PRERELEASE");
+      expect(documentation).toContain("v1.1.0-rc.1");
+    }
   });
 
   test("gates the exact head using current-head CodeRabbit approval", async () => {
@@ -1601,6 +1607,63 @@ runs:
     );
     expect(invalidComposite.stderr).not.toContain(
       '"actions/harmless-input@v4"',
+    );
+
+    const validDockerAction = await runPinVerifier(
+      `
+name: Fixture Docker action
+description: Exercises immutable registry images
+inputs:
+  image:
+    description: A harmless input named image
+runs:
+  using: docker
+  image: docker://ghcr.io/alitycs/build@sha256:${"e".repeat(64)}
+`,
+      "action.yml",
+    );
+    expect(validDockerAction.exitCode).toBe(0);
+
+    const validLocalDockerAction = await runPinVerifier(
+      `
+name: Fixture local Docker action
+description: Exercises same-commit Dockerfiles
+runs:
+  using: docker
+  image: ./containers/Dockerfile
+`,
+      "action.yaml",
+    );
+    expect(validLocalDockerAction.exitCode).toBe(0);
+
+    const invalidDockerAction = await runPinVerifier(
+      `
+name: Fixture mutable Docker action
+description: Contains a mutable registry image
+runs:
+  using: docker
+  image: docker://alpine:latest
+`,
+      "action.yml",
+    );
+    expect(invalidDockerAction.exitCode).toBe(1);
+    expect(invalidDockerAction.stderr).toContain(
+      'unpinned Docker image "docker://alpine:latest"',
+    );
+
+    const invalidLocalDockerAction = await runPinVerifier(
+      `
+name: Fixture invalid local Docker action
+description: Escapes the action directory
+runs:
+  using: docker
+  image: ../Dockerfile
+`,
+      "action.yml",
+    );
+    expect(invalidLocalDockerAction.exitCode).toBe(1);
+    expect(invalidLocalDockerAction.stderr).toContain(
+      'invalid Docker action image "../Dockerfile"',
     );
   });
 });
