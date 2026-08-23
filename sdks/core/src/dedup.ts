@@ -51,12 +51,10 @@ export class EventDeduplicator {
   }
 
   private evict(): void {
-    const toRemove = Math.ceil(MAX_ENTRIES * 0.1);
-    const iterator = this.entries.keys();
-    for (let i = 0; i < toRemove; i++) {
-      const next = iterator.next();
-      if (next.done) break;
-      this.entries.delete(next.value);
+    let toRemove = Math.ceil(MAX_ENTRIES * 0.1);
+    while (toRemove > 0 && this.entries.size > 0) {
+      this.entries.delete(this.entries.keys().next().value!);
+      toRemove--;
     }
   }
 }

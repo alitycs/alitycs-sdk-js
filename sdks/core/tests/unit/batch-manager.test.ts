@@ -193,6 +193,116 @@ describe('BatchManager', () => {
     await normalFlush;
   });
 
+  test('flush() awaits an in-flight send and then drains queued events', async () => {
+    let finishFirstSend: (() => void) | undefined;
+    const firstSendPending = new Promise<void>(resolve => {
+      finishFirstSend = resolve;
+    });
+    const sent: BatchPayload[] = [];
+    const transport = {
+      send: mock(async (payload: BatchPayload) => {
+        sent.push(payload);
+        if (sent.length === 1) await firstSendPending;
+      }),
+    };
+    bm = new BatchManager(makeConfig(), transport as any, createLogger(false));
+
+    bm.add(makeEvent('a'));
+    const inFlight = bm.flush();
+    await Promise.resolve();
+    bm.add(makeEvent('b'));
+
+    const followUp = bm.flush();
+    expect(sent).toHaveLength(1);
+
+    finishFirstSend?.();
+    await Promise.all([inFlight, followUp]);
+
+    expect(sent).toHaveLength(2);
+    expect(sent[1].events.map(event => event.event)).toEqual(['b']);
+    expect(bm.pending).toBe(0);
+  });
+
+  test('concurrent flushes during an in-flight send coalesce into one follow-up batch', async () => {
+    let finishFirstSend: (() => void) | undefined;
+    const firstSendPending = new Promise<void>(resolve => {
+      finishFirstSend = resolve;
+    });
+    const sent: BatchPayload[] = [];
+    const transport = {
+      send: mock(async (payload: BatchPayload) => {
+        sent.push(payload);
+        if (sent.length === 1) await firstSendPending;
+      }),
+    };
+    bm = new BatchManager(makeConfig({ flushSize: 100 }), transport as any, createLogger(false));
+
+    bm.add(makeEvent('a'));
+    const inFlight = bm.flush();
+    await Promise.resolve();
+    bm.add(makeEvent('b'));
+    bm.add(makeEvent('c'));
+
+    const waiterOne = bm.flush();
+    const waiterTwo = bm.flush();
+    const waiterThree = bm.flush();
+
+    finishFirstSend?.();
+    await Promise.all([inFlight, waiterOne, waiterTwo, waiterThree]);
+
+    expect(sent).toHaveLength(2);
+    expect(sent[1].events.map(event => event.event)).toEqual(['b', 'c']);
+    expect(bm.pending).toBe(0);
+  });
+
+  test('drain() waits for an in-flight send before emptying the queue', async () => {
+    let finishFirstSend: (() => void) | undefined;
+    const firstSendPending = new Promise<void>(resolve => {
+      finishFirstSend = resolve;
+    });
+    const sent: BatchPayload[] = [];
+    const transport = {
+      send: mock(async (payload: BatchPayload) => {
+        sent.push(payload);
+        if (sent.length === 1) await firstSendPending;
+      }),
+    };
+    bm = new BatchManager(makeConfig(), transport as any, createLogger(false));
+
+    bm.add(makeEvent('a'));
+    const inFlight = bm.flush();
+    await Promise.resolve();
+    bm.add(makeEvent('b'));
+
+    const drained = bm.drain();
+    expect(bm.pending).toBe(1);
+
+    finishFirstSend?.();
+    await Promise.all([inFlight, drained]);
+
+    expect(sent).toHaveLength(2);
+    expect(sent[1].events.map(event => event.event)).toEqual(['b']);
+    expect(bm.pending).toBe(0);
+  });
+
+  test('drain() sends payload-bounded remainders until the queue is empty', async () => {
+    const transport = makeMockTransport();
+    bm = new BatchManager(makeConfig({ flushSize: 100 }), transport as any, createLogger(false));
+
+    for (let index = 0; index < 5; index++) {
+      bm.add({ ...makeEvent(`page-${index}`), properties: { payload: 'x'.repeat(120) } });
+    }
+
+    await bm.drain({ maxPayloadBytes: 700 });
+
+    expect(bm.pending).toBe(0);
+    expect(transport.sent.length).toBeGreaterThan(1);
+    expect(transport.sent.flatMap(payload => payload.events.map(event => event.event))).toHaveLength(5);
+    for (const payload of transport.sent) {
+      expect(new TextEncoder().encode(JSON.stringify(payload)).byteLength).toBeLessThanOrEqual(700);
+    }
+  });
+
   test('keepalive flush replays an unresolved normal batch during page exit', async () => {
     let finishNormalFlush: (() => void) | undefined;
     const normalFlushPending = new Promise<void>(resolve => {

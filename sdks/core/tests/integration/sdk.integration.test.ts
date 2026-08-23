@@ -129,6 +129,39 @@ describe('SDK Integration', () => {
     expect(sentPayloads[0].events[0].event).toBe('pending_event');
   });
 
+  test('shutdown drains events enqueued while a send is in flight', async () => {
+    let releaseFirstSend: () => void = () => {};
+    const firstSendReleased = new Promise<void>(resolve => {
+      releaseFirstSend = resolve;
+    });
+    globalThis.fetch = mock(async (_url: any, init: any) => {
+      sentPayloads.push(JSON.parse(init.body));
+      if (sentPayloads.length === 1) await firstSendReleased;
+      return new Response('OK', { status: 200 });
+    }) as any;
+
+    const sdk = Alitycs.init({ apiKey: 'key', flushSize: 2, flushInterval: 3_600_000 });
+
+    sdk.track('in_flight_a');
+    sdk.track('in_flight_b'); // size trigger dispatches this pair and holds it in flight
+    sdk.track('queued_c'); // enqueued while the first send is still in flight
+    sdk.track('queued_d');
+
+    expect(sdk.pending).toBe(2);
+
+    const shutdown = sdk.shutdown();
+    releaseFirstSend();
+    await shutdown;
+
+    const delivered = sentPayloads.flatMap(payload => payload.events.map(event => event.event));
+    expect(delivered.sort()).toEqual(['in_flight_a', 'in_flight_b', 'queued_c', 'queued_d']);
+
+    const eventIds = sentPayloads.flatMap(payload => payload.events.map(event => event.eventId));
+    expect(new Set(eventIds).size).toBe(4);
+
+    expect(sdk.pending).toBe(0);
+  });
+
   test('transport failure does not throw', async () => {
     globalThis.fetch = mock(async () => {
       throw new Error('Network failure');
