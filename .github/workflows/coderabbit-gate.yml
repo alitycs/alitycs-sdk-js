@@ -1,0 +1,93 @@
+name: CodeRabbit gate
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  gate:
+    name: CodeRabbit Gate
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Verify the current-head approval
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const ignoredBots = new Set([
+              "dependabot[bot]",
+              "renovate[bot]",
+              "github-actions[bot]",
+            ]);
+            const pullRequest = context.payload.pull_request;
+            const headSha = pullRequest.head.sha;
+            const author = pullRequest.user.login;
+
+            const hasCurrentApproval = async () => {
+              const reviews = await github.paginate(github.rest.pulls.listReviews, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pullRequest.number,
+                per_page: 100,
+              });
+              const latestByReviewer = new Map();
+              for (const review of reviews
+                .filter((review) => review.commit_id === headSha && review.user)
+                .sort((left, right) =>
+                  String(left.submitted_at).localeCompare(String(right.submitted_at)),
+                )) {
+                latestByReviewer.set(review.user.login, review);
+              }
+
+              if (ignoredBots.has(author)) {
+                for (const review of latestByReviewer.values()) {
+                  if (review.state !== "APPROVED" || review.user.login.endsWith("[bot]")) {
+                    continue;
+                  }
+                  try {
+                    const permission = await github.rest.repos.getCollaboratorPermissionLevel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      username: review.user.login,
+                    });
+                    if (["admin", "maintain", "write"].includes(permission.data.permission)) {
+                      return true;
+                    }
+                  } catch (error) {
+                    if (error.status !== 404) throw error;
+                  }
+                }
+                return false;
+              }
+
+              return latestByReviewer.get("coderabbitai[bot]")?.state === "APPROVED";
+            };
+
+            for (let attempt = 1; attempt <= 45; attempt += 1) {
+              if (await hasCurrentApproval()) {
+                core.info(
+                  ignoredBots.has(author)
+                    ? "Current-head human approval found for ignored bot pull request."
+                    : "Current-head CodeRabbit approval found.",
+                );
+                return;
+              }
+              if (attempt < 45) {
+                core.info(`Approval is not current yet (attempt ${attempt}/45); retrying.`);
+                await new Promise((resolve) => setTimeout(resolve, 20_000));
+              }
+            }
+
+            core.setFailed(
+              ignoredBots.has(author)
+                ? "Ignored bot pull requests require a current-head human approval."
+                : "Human-authored pull requests require a current-head CodeRabbit approval.",
+            );

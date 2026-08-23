@@ -48,8 +48,9 @@ for a changeset in `CHANGELOG.md` when a change affects consumers. By contributi
 your contribution is licensed under this repository's MIT License.
 
 CodeRabbit automatically reviews ready, human-authored pull requests and may request changes for
-correctness, security, compatibility, or test gaps. Its approval must cover the latest pushed
-commit; pushing another commit dismisses the stale approval and triggers an incremental review.
+correctness, security, compatibility, or test gaps. The required `CodeRabbit Gate` check verifies
+that its approval covers the latest pushed commit; pushing another commit triggers an incremental
+review.
 Dependabot, Renovate, and GitHub Actions bot pull requests are intentionally skipped and instead
 require the normal CI checks plus one human approval. Administrators should use any protection
 override only as an incident break-glass measure and restore and verify the branch policy
