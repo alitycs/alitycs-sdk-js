@@ -41,8 +41,11 @@ reviews:
         digests; workflow job container and service images must use literal lowercase registry
         references pinned to full SHA-256 digests. Reject YAML merge keys (`<<`) anywhere in
         workflow or action metadata; GitHub Actions does not support them, and they can hide
-        references from structural verification. Treat formatting-only preferences as non-blocking
-        when automation already enforces them.
+        references from structural verification. Every non-reusable workflow job must resolve to
+        exactly one scalar, explicitly versioned GitHub-hosted runs-on label; direct scalar aliases
+        are allowed, while reusable-workflow jobs with `uses` may omit it. Reject floating,
+        dynamic, self-hosted, missing, duplicate, or non-scalar labels. Treat formatting-only
+        preferences as non-blocking when automation already enforces them.
     - path: "sdks/core/src/**"
       instructions: >-
         Preserve the public TypeScript API and the POST /events wire contract. The SDK accepts
@@ -119,11 +122,14 @@ reviews:
         seed procedure. After that baseline is on main, ordinary pull requests must not change or
         add workflows; use the documented two-phase upgrade procedure. Keep permissions
         least-privileged, GitHub and reusable actions pinned to full commit SHAs, and Docker actions
-        pinned to SHA-256 digests. Keep runner labels pinned to explicit OS versions. Workflow
-        container and service images must be literal lowercase registry references pinned to full
-        SHA-256 digests. Reject YAML merge keys (`<<`) everywhere while continuing to resolve
-        ordinary anchors and aliases structurally. CI must stay deterministic, and releases must
-        be gated on the complete verification and package-integrity suite.
+        pinned to SHA-256 digests. Require every non-reusable job to resolve to exactly one scalar,
+        explicitly versioned GitHub-hosted runner label; direct scalar aliases are allowed, while
+        reusable-workflow jobs with `uses` may omit it. Reject `*-latest`, expressions, self-hosted
+        labels, missing or duplicate declarations, and non-scalar forms. Workflow container and
+        service images must be literal lowercase registry references pinned to full SHA-256
+        digests. Reject YAML merge keys (`<<`) everywhere while continuing to resolve ordinary
+        anchors and aliases structurally. CI must stay deterministic, and releases must be gated on
+        the complete verification and package-integrity suite.
 
   auto_review:
     enabled: true

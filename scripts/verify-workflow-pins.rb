@@ -18,6 +18,13 @@ WORKFLOW_IMAGE_REFERENCE = %r{
   @sha256:[0-9a-f]{64}
   \z
 }x
+VERSIONED_GITHUB_RUNNER_LABEL = %r{
+  \A
+  (?!.*-latest\z)
+  (?:ubuntu-[0-9]{2}\.[0-9]{2}|windows-[0-9]+|macos-[0-9]+)
+  (?:-[a-z0-9]+)*
+  \z
+}x
 SAME_COMMIT_REFERENCE = %r{\A(?:\./|\$/)[^@\s]+\z}
 WORKFLOW_PATH = %r{\A\.github/workflows/.+\.ya?ml\z}
 ACTION_METADATA_PATH = %r{(?:\A|/)action\.ya?ml\z}
@@ -262,8 +269,58 @@ def each_workflow_service_image(job, context)
 end
 
 def each_workflow_uses(root, context, &block)
-  mapping_values(root, "jobs", context).each do |_jobs_key, jobs|
-    mapping_entries(jobs, context).each do |_job_name, job|
+  job_mappings = mapping_values(root, "jobs", context)
+  if job_mappings.empty?
+    block.call(nil, node_location(root), :workflow_jobs_missing)
+    return
+  end
+
+  job_mappings.drop(1).each do |jobs_key, _jobs|
+    block.call(nil, node_location(jobs_key), :workflow_jobs_duplicate)
+  end
+
+  job_mappings.each do |jobs_key, jobs|
+    resolved_jobs = resolve_alias(jobs, context)
+    unless resolved_jobs.is_a?(Psych::Nodes::Mapping)
+      block.call(nil, node_location(jobs_key), :workflow_jobs_non_mapping)
+      next
+    end
+
+    seen_job_names = Set.new
+    mapping_entries(resolved_jobs, context).each do |job_name_node, job|
+      job_name = scalar_value(job_name_node, context)
+      if job_name.nil?
+        block.call(nil, node_location(job_name_node), :workflow_job_name_non_scalar)
+      elsif !seen_job_names.add?(job_name)
+        block.call(job_name, node_location(job_name_node), :workflow_job_duplicate)
+      end
+
+      resolved_job = resolve_alias(job, context)
+      unless resolved_job.is_a?(Psych::Nodes::Mapping)
+        block.call(job_name, node_location(job_name_node), :workflow_job_non_mapping)
+        next
+      end
+
+      workflow_references = mapping_values(resolved_job, "uses", context)
+      workflow_references.drop(1).each do |uses_key, _uses|
+        block.call(job_name, node_location(uses_key), :workflow_uses_duplicate)
+      end
+
+      runner_labels = mapping_values(resolved_job, "runs-on", context)
+      if workflow_references.empty? && runner_labels.empty?
+        block.call(job_name, node_location(job_name_node), :workflow_runner_missing)
+      end
+      runner_labels.drop(1).each do |runner_key, _runner|
+        block.call(job_name, node_location(runner_key), :workflow_runner_duplicate)
+      end
+      runner_labels.each do |runner_key, runner|
+        block.call(
+          scalar_value(runner, context),
+          node_location(runner_key),
+          :workflow_runner_label,
+        )
+      end
+
       each_mapping_reference(job, "uses", context, :workflow, &block)
       each_workflow_container_image(job, context, &block)
       each_workflow_service_image(job, context, &block)
@@ -336,7 +393,38 @@ begin
         errors << "#{path}: #{location} YAML merge keys (<<) are not supported"
       end
       each_action_uses(stream, path) do |reference, location, reference_kind|
-        if %i[workflow_container_image workflow_service_image].include?(reference_kind)
+        if reference_kind == :workflow_jobs_missing
+          errors << "#{path}: #{location} workflow must declare exactly one jobs mapping"
+        elsif reference_kind == :workflow_jobs_duplicate
+          errors << "#{path}: #{location} workflow must not declare jobs more than once"
+        elsif reference_kind == :workflow_jobs_non_mapping
+          errors << "#{path}: #{location} workflow jobs must be a mapping"
+        elsif reference_kind == :workflow_job_name_non_scalar
+          errors << "#{path}: #{location} workflow job name must be a scalar string"
+        elsif reference_kind == :workflow_job_duplicate
+          errors << "#{path}: #{location} workflow job #{reference.inspect} is declared more than once"
+        elsif reference_kind == :workflow_job_non_mapping
+          errors << "#{path}: #{location} workflow job #{reference.inspect} must be a mapping"
+        elsif reference_kind == :workflow_uses_duplicate
+          errors << "#{path}: #{location} workflow job #{reference.inspect} declares uses more than once"
+        elsif reference_kind == :workflow_runner_missing
+          errors <<
+            "#{path}: #{location} workflow job #{reference.inspect} must declare exactly one " \
+              "scalar explicit versioned GitHub-hosted runs-on label"
+        elsif reference_kind == :workflow_runner_duplicate
+          errors <<
+            "#{path}: #{location} workflow job #{reference.inspect} declares runs-on more than once"
+        elsif reference_kind == :workflow_runner_label
+          if reference.nil?
+            errors <<
+              "#{path}: #{location} workflow runs-on must be a scalar explicit versioned " \
+                "GitHub-hosted label"
+          elsif !reference.match?(VERSIONED_GITHUB_RUNNER_LABEL)
+            errors <<
+              "#{path}: #{location} workflow runs-on must be a literal explicit versioned " \
+                "GitHub-hosted label, got #{reference.inspect}"
+          end
+        elsif %i[workflow_container_image workflow_service_image].include?(reference_kind)
           image_type = reference_kind == :workflow_container_image ? "container" : "service"
           if reference.nil?
             errors <<

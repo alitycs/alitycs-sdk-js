@@ -16,10 +16,14 @@ reusable workflows require full commit SHAs, Docker action images retain their `
 or tracked local `Dockerfile` rules, and every workflow job container or service image must be a
 literal lowercase registry reference ending in `@sha256:` plus 64 lowercase hexadecimal digits.
 The workflow-image check covers scalar and mapping container forms, aliases, flow collections,
-duplicate keys, and non-scalar values. YAML merge keys (`<<`) are rejected anywhere in workflow or
-action metadata because GitHub Actions does not support them and treating them as ordinary keys
-could hide references from structural verification. Use anchors and aliases only as complete
-values.
+duplicate keys, and non-scalar values. Every non-reusable job must also declare exactly one scalar
+explicit versioned GitHub-hosted `runs-on` label. Accepted labels match
+`(ubuntu-<NN.NN>|windows-<N>|macos-<N>)(-lowercase-segment)*`; direct scalar aliases are allowed,
+and reusable-workflow jobs with `uses` may omit `runs-on`. Missing or duplicate declarations,
+expressions, mappings, sequences, and other labels are rejected. In particular, do not use a moving
+`*-latest` label. YAML merge keys (`<<`) are rejected anywhere in workflow or action metadata.
+GitHub Actions does not support merge keys, and treating them as ordinary keys could hide
+references from structural verification. Use anchors and aliases only as complete values.
 
 `.github/workflows/coderabbit-schema-drift.yml` compares that snapshot with CodeRabbit's live
 schema every week and on manual dispatch. It never runs for pull requests or pushes and is
@@ -140,13 +144,16 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
    SHA-256 digest. A local `runs.image` path must resolve to a tracked file named `Dockerfile` at
    the audited commit. Express every workflow job container or service image as a literal
    lowercase registry reference pinned to a full `sha256` digest; expressions and mutable tags are
-   invalid. Pin GitHub-hosted jobs to an explicit supported runner label such as `ubuntu-24.04`;
-   do not use a moving `*-latest` label. Run
+   invalid. Every non-reusable job must have exactly one scalar explicit versioned GitHub-hosted
+   runner label matching `(ubuntu-<NN.NN>|windows-<N>|macos-<N>)(-lowercase-segment)*`, such as
+   `ubuntu-24.04`; reusable-workflow jobs with `uses` may omit `runs-on`; do not use a moving
+   `*-latest` label, an expression, or a collection. Run
    `./scripts/verify-workflow-pins.rb`, `./scripts/validate-coderabbit.sh`, and the repository policy
    tests before merging the baseline. The structural verifier covers YAML quoting, flow mappings,
    aliases, duplicate keys, tracked local composite-action metadata, Docker action images, and
-   workflow job container and service images, including scalar and mapping container forms. It
-   rejects YAML merge keys (`<<`) anywhere in workflow or action metadata.
+   workflow job container and service images, including scalar and mapping container forms, plus
+   required runner-label shape and uniqueness. It rejects YAML merge keys (`<<`) anywhere in
+   workflow or action metadata.
    Same-commit actions and reusable workflows may use GitHub's `$/` syntax or the compatible `./`
    syntax; both are resolved only to tracked files at the audited commit.
    Copy the pinned schema snapshot, hash-locked validator requirements, and validation script as a

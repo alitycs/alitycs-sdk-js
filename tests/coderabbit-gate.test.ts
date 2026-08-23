@@ -1617,8 +1617,141 @@ describe("trusted CodeRabbit workflow", () => {
     for (const runnerLabel of runnerLabels) {
       expect(runnerLabel).toBe("ubuntu-24.04");
     }
-    expect(docs).toContain("do not use a moving `*-latest` label");
-    expect(policy).toContain("runner labels pinned to explicit OS versions");
+    expect(docs).toMatch(/do not use a moving\s+`\*-latest` label/);
+    expect(docs).toContain(
+      "(ubuntu-<NN.NN>|windows-<N>|macos-<N>)(-lowercase-segment)*",
+    );
+    expect(policy).toMatch(/explicitly versioned\s+GitHub-hosted runner label/);
+
+    const valid = await runPinVerifier(`
+runner: &runner ubuntu-24.04
+job: &job
+  runs-on: *runner
+  steps: [{ run: echo ok }]
+jobs:
+  aliased-job: *job
+  ubuntu-arm:
+    runs-on: ubuntu-24.04-arm64-large
+  windows:
+    runs-on: windows-2025
+  macos:
+    runs-on: macos-15-intel
+  reusable:
+    uses: alitycs/reusable/.github/workflows/ci.yml@${"a".repeat(40)}
+`);
+    expect(valid.exitCode).toBe(0);
+
+    const invalidLiterals = await runPinVerifier(`
+jobs:
+  ubuntu-latest:
+    runs-on: ubuntu-latest
+  windows-latest:
+    runs-on: windows-latest
+  macos-latest:
+    runs-on: macos-latest
+  versioned-latest:
+    runs-on: macos-15-latest
+  expression:
+    runs-on: "\${{ matrix.os }}"
+  uppercase-base:
+    runs-on: Ubuntu-24.04
+  uppercase-segment:
+    runs-on: ubuntu-24.04-ARM
+  malformed-ubuntu:
+    runs-on: ubuntu-24.4
+  malformed-windows:
+    runs-on: windows-2025.1
+  malformed-macos:
+    runs-on: macos-15.0
+  self-hosted:
+    runs-on: self-hosted
+`);
+    expect(invalidLiterals.exitCode).toBe(1);
+    for (const label of [
+      "ubuntu-latest",
+      "windows-latest",
+      "macos-latest",
+      "macos-15-latest",
+      "${{ matrix.os }}",
+      "Ubuntu-24.04",
+      "ubuntu-24.04-ARM",
+      "ubuntu-24.4",
+      "windows-2025.1",
+      "macos-15.0",
+      "self-hosted",
+    ]) {
+      expect(invalidLiterals.stderr).toContain(`got "${label}"`);
+    }
+
+    const invalidShapes = await runPinVerifier(`
+mapping: &mapping { group: hosted, labels: ubuntu-24.04 }
+sequence: &sequence [ubuntu-24.04]
+jobs:
+  mapping:
+    runs-on: { group: hosted, labels: ubuntu-24.04 }
+  mapping-alias:
+    runs-on: *mapping
+  sequence:
+    runs-on: [ubuntu-24.04]
+  sequence-alias:
+    runs-on: *sequence
+  null:
+    runs-on:
+  unknown-alias:
+    runs-on: *missing-runner
+`);
+    expect(invalidShapes.exitCode).toBe(1);
+    expect(
+      invalidShapes.stderr.match(
+        /workflow runs-on must be a scalar explicit versioned GitHub-hosted label/g,
+      ),
+    ).toHaveLength(5);
+    expect(invalidShapes.stderr).toContain('got ""');
+
+    const missingAndDuplicate = await runPinVerifier(`
+jobs:
+  missing:
+    steps: [{ run: echo missing }]
+  duplicate-runner:
+    runs-on: ubuntu-24.04
+    runs-on: macos-15
+  reusable:
+    uses: alitycs/reusable/.github/workflows/ci.yml@${"a".repeat(40)}
+  duplicate-reusable:
+    uses: alitycs/reusable/.github/workflows/ci.yml@${"a".repeat(40)}
+    uses: alitycs/reusable/.github/workflows/ci.yml@${"a".repeat(40)}
+`);
+    expect(missingAndDuplicate.exitCode).toBe(1);
+    expect(missingAndDuplicate.stderr).toContain(
+      'workflow job "missing" must declare exactly one scalar explicit versioned',
+    );
+    expect(missingAndDuplicate.stderr).toContain(
+      'workflow job "duplicate-runner" declares runs-on more than once',
+    );
+    expect(missingAndDuplicate.stderr).toContain(
+      'workflow job "duplicate-reusable" declares uses more than once',
+    );
+
+    for (const [fixture, expectedError] of [
+      ["name: missing-jobs", "workflow must declare exactly one jobs mapping"],
+      ["jobs: [invalid]", "workflow jobs must be a mapping"],
+      [
+        "jobs: { invalid: [ubuntu-24.04] }",
+        'workflow job "invalid" must be a mapping',
+      ],
+      [
+        "jobs: { duplicate: { runs-on: ubuntu-24.04 }, duplicate: { runs-on: macos-15 } }",
+        'workflow job "duplicate" is declared more than once',
+      ],
+      [
+        "jobs: { first: { runs-on: ubuntu-24.04 } }\njobs: { second: { runs-on: macos-15 } }",
+        "workflow must not declare jobs more than once",
+      ],
+    ] as const) {
+      const result = await runPinVerifier(fixture);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(expectedError);
+    }
   });
 
   test("audits the synchronized commit and exact app allowlists", async () => {
@@ -1860,6 +1993,7 @@ earlier: &pin actions/checkout@v4
 current: &pin actions/checkout@${"1".repeat(40)}
 jobs:
   valid:
+    runs-on: ubuntu-24.04
     steps:
       - uses: *pin
 `);
@@ -1887,6 +2021,7 @@ jobs:
   same-commit-workflow:
     uses: $/.github/workflows/ci.yml
   actions:
+    runs-on: ubuntu-24.04
     env:
       uses: actions/job-environment@v4
     steps:
@@ -2037,6 +2172,7 @@ metadata:
   nested: { <<: *defaults }
 jobs:
   valid:
+    runs-on: ubuntu-24.04
     steps:
       - uses: ${immutableAction}
 `,
@@ -2080,6 +2216,7 @@ runs:
 marker: "<<"
 jobs:
   valid:
+    runs-on: ubuntu-24.04
     steps:
       - uses: ${immutableAction}
 `);
@@ -2105,10 +2242,12 @@ container-definition: &container-definition
 service-definition: &service-definition { image: *service-image, ports: [5432] }
 jobs:
   scalar-container:
+    runs-on: ubuntu-24.04
     container: *container-image
     services:
       database: *service-definition
   mapping-container:
+    runs-on: ubuntu-24.04
     container: *container-definition
     services: { cache: { image: ${validRegistryPort} } }
 `);
