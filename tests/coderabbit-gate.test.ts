@@ -1258,6 +1258,12 @@ describe("trusted CodeRabbit workflow", () => {
     expect(validator).not.toContain("https://coderabbit.ai");
     expect(requirements).toContain("check-jsonschema==0.37.4");
     expect(requirements).toContain("--hash=sha256:");
+    expect(requirements).toContain(
+      "# printf 'check-jsonschema==0.37.4\\n' | uv pip compile",
+    );
+    expect(requirements).not.toContain(
+      "# printf 'check-jsonschema==0.37.4\\\\n' | uv pip compile",
+    );
     expect(
       docs.match(/\.\/scripts\/validate-coderabbit\.sh/g)?.length ?? 0,
     ).toBeGreaterThanOrEqual(3);

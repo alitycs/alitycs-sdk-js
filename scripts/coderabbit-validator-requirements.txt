@@ -1,6 +1,6 @@
 # Hash-locked runtime for check-jsonschema 0.37.4.
 # Regenerate deliberately with:
-# printf 'check-jsonschema==0.37.4\\n' | uv pip compile - --generate-hashes \
+# printf 'check-jsonschema==0.37.4\n' | uv pip compile - --generate-hashes \
 #   --python-version 3.11 --no-build --strip-extras --no-annotate --no-header --quiet
 attrs==26.1.0 \
     --hash=sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309 \
