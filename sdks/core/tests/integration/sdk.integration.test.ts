@@ -167,7 +167,7 @@ describe('SDK Integration', () => {
     await sdk.flush();
 
     const ctx = sentPayloads[0].events[0].context;
-    expect(ctx.sdkVersion).toBe('1.0.0');
+    expect(ctx.sdkVersion).toBe('1.0.1');
     expect(ctx.sdkLanguage).toBe('typescript');
     expect(typeof ctx.timezone).toBe('string');
 

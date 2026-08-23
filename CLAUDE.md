@@ -4,9 +4,9 @@
 
 Bun-based monorepo containing JavaScript/TypeScript analytics SDKs for the Alitycs Platform. Three packages live under `sdks/`:
 
-- **`@alitycs/core`** (v1.0.0) — Universal analytics SDK: event tracking, batching, sessions, HTTP transport with retry. Works in Node/Bun/Deno/Edge/Workers.
-- **`@alitycs/browser`** (v1.0.0) — Browser analytics SDK extending `@alitycs/core` with auto-capture, beforeunload handling, and snippet integration.
-- **`@alitycs/browser-snippet`** (v1.0.0) — Ultra-lightweight (~1KB) drop-in `<script>` loader that queues calls and async-loads the full SDK.
+- **`@alitycs/core`** (v1.0.1) — Universal analytics SDK: event tracking, batching, sessions, HTTP transport with retry. Works in Node/Bun/Deno/Edge/Workers.
+- **`@alitycs/browser`** (v1.0.1) — Browser analytics SDK extending `@alitycs/core` with auto-capture, beforeunload handling, and snippet integration.
+- **`@alitycs/browser-snippet`** (v1.0.1) — Ultra-lightweight (~1KB) drop-in `<script>` loader that queues calls and async-loads the full SDK.
 
 ## Commands
 

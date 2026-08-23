@@ -17,7 +17,7 @@ Until the first npm release is published, install the archive attached to the ma
 [GitHub Release](https://github.com/alitycs/alitycs-sdk-js/releases):
 
 ```bash
-bun add https://github.com/alitycs/alitycs-sdk-js/releases/download/v1.0.0/alitycs-core-1.0.0.tgz
+bun add https://github.com/alitycs/alitycs-sdk-js/releases/download/v1.0.1/alitycs-core-1.0.1.tgz
 ```
 
 ## Usage

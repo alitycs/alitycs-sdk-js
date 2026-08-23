@@ -5,6 +5,11 @@ here before a version tag is created.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-08-23
+
+- Replaced the non-cryptographic UUID fallback with Web Crypto and fail closed when secure
+  randomness is unavailable.
+
 ## [1.0.0] - 2026-08-23
 
 - Initial public source release of `@alitycs/core`, `@alitycs/browser`, and
@@ -13,5 +18,6 @@ here before a version tag is created.
   revenue events, browser lifecycle flushing, optional autocapture, and the GA4 bridge.
 - Enforced 90% line and 85% function coverage gates.
 
-[Unreleased]: https://github.com/alitycs/alitycs-sdk-js/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/alitycs/alitycs-sdk-js/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/alitycs/alitycs-sdk-js/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/alitycs/alitycs-sdk-js/releases/tag/v1.0.0

@@ -15,7 +15,7 @@ the browser SDK, and the lightweight browser loader.
 | [`@alitycs/browser`](sdks/browser)                 | Browsers                          | Core capabilities plus optional DOM/page autocapture, lifecycle flushing, and a GA4 compatibility bridge            |
 | [`@alitycs/browser-snippet`](sdks/browser-snippet) | Browser script tag                | A small loader that queues calls and loads the browser SDK asynchronously                                           |
 
-All packages are currently version `1.0.0`. Versioned, installable package archives are attached to
+All packages are currently version `1.0.1`. Versioned, installable package archives are attached to
 [GitHub Releases](https://github.com/alitycs/alitycs-sdk-js/releases). Public npm publication is
 prepared by the release process but is not advertised until the `@alitycs` npm packages exist.
 
