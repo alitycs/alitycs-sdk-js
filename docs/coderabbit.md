@@ -10,6 +10,12 @@ transitive Python dependency by hash. `scripts/validate-coderabbit.sh` verifies 
 creates an isolated environment with Python 3.11 or newer, and never uses an ambient validator
 from `PATH`.
 
+`.github/workflows/coderabbit-schema-drift.yml` compares that snapshot with CodeRabbit's live
+schema every week and on manual dispatch. It never runs for pull requests or pushes and is
+deliberately not a required merge check: a failure is a maintenance alert to review and update the
+snapshot, validator, policy, and tests together. Pull requests continue to validate only against
+the pinned snapshot so their result is reproducible.
+
 ## Merge policy
 
 - Ready, human-authored pull requests are reviewed automatically. The required
@@ -114,9 +120,10 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
    installation to all repositories or select a non-SDK repository. After `alitycs-sdk-`, use
    lowercase alphanumeric name segments separated by single hyphens, such as
    `alitycs-sdk-react-native`; dots, underscores, empty segments, and trailing hyphens are invalid.
-2. Add a complete, standalone `.coderabbit.yaml`, both protected gate workflows, their policy
-   tests, CI, dependency review, release automation, `README.md`, `CONTRIBUTING.md`,
-   `SECURITY.md`, a pull-request template, and `scripts/verify-workflow-pins.rb`. Pin every GitHub
+2. Add a complete, standalone `.coderabbit.yaml`, both protected gate workflows, the non-gating
+   scheduled/manual schema-drift workflow, their policy tests, CI, dependency review, release
+   automation, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, a pull-request template, and
+   `scripts/verify-workflow-pins.rb`. Pin every GitHub
    Action or reusable-workflow `uses:` reference to a full lowercase 40-character commit SHA and
    every `docker://` action to a full lowercase SHA-256 digest. Run
    `./scripts/verify-workflow-pins.rb`, `./scripts/validate-coderabbit.sh`, and the repository policy

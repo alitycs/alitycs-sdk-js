@@ -21,4 +21,5 @@ Describe the user-visible change and why it is needed.
 
 CodeRabbit automatically re-reviews new commits. Dependabot, Renovate, and GitHub Actions bot pull
 requests are intentionally excluded and require one current-head human maintainer approval plus the
-normal CI checks. See [`docs/coderabbit.md`](../docs/coderabbit.md) for gate operations.
+normal CI checks. See the
+[CodeRabbit gate operations guide](https://github.com/alitycs/alitycs-sdk-js/blob/main/docs/coderabbit.md).

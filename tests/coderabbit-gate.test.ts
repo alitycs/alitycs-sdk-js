@@ -1327,6 +1327,30 @@ describe("trusted CodeRabbit workflow", () => {
     );
   });
 
+  test("monitors live schema drift without making it a merge gate", async () => {
+    const workflow = await Bun.file(
+      ".github/workflows/coderabbit-schema-drift.yml",
+    ).text();
+    const docs = await Bun.file("docs/coderabbit.md").text();
+    const policy = await Bun.file(".coderabbit.yaml").text();
+
+    expect(workflow).toMatch(/^  schedule:$/m);
+    expect(workflow).toMatch(/^  workflow_dispatch:$/m);
+    expect(workflow).not.toMatch(/^  pull_request(?:_target)?:$/m);
+    expect(workflow).not.toMatch(/^  push:$/m);
+    expect(workflow).toContain("permissions:\n  contents: read");
+    expect(workflow).toMatch(/actions\/checkout@[0-9a-f]{40}/);
+    expect(workflow).toContain("persist-credentials: false");
+    expect(workflow).toContain(
+      "https://coderabbit.ai/integrations/schema.v2.json",
+    );
+    expect(workflow).toContain('cmp --silent "$pinned_schema" "$live_schema"');
+    expect(docs).toContain("deliberately not a required merge check");
+    expect(policy).toContain(
+      "keep the scheduled live-schema drift check non-gating",
+    );
+  });
+
   test("audits the synchronized commit and exact app allowlists", async () => {
     const audit = await Bun.file("scripts/audit-coderabbit-github.sh").text();
     const docs = await Bun.file("docs/coderabbit.md").text();

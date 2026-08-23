@@ -76,9 +76,10 @@ reviews:
     - path: ".coderabbit.yaml"
       instructions: >-
         Block changes that disable automatic review, request-changes behavior, exact-head gating,
-        or the ignored-bot policy. Require live-schema validation for every configuration change.
-        This file is part of the exact-blob trust boundary and changes only through the documented
-        two-phase policy and gate upgrade procedure.
+        or the ignored-bot policy. Require pinned-schema validation for every configuration change
+        and keep the scheduled live-schema drift check non-gating. This file is part of the
+        exact-blob trust boundary and changes only through the documented two-phase policy and gate
+        upgrade procedure.
     - path: ".github/workflows/coderabbit-gate.yml"
       instructions: >-
         This is a protected trust boundary. It must run only from trusted main-branch push,
