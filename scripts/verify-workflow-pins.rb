@@ -8,7 +8,7 @@ require "set"
 
 GIT_ACTION_REFERENCE = /\A[^@\s]+@[0-9a-f]{40}\z/
 DOCKER_ACTION_REFERENCE = /\Adocker:\/\/[^@\s]+@sha256:[0-9a-f]{64}\z/
-LOCAL_ACTION_REFERENCE = %r{\A\./[^\s]+\z}
+SAME_COMMIT_REFERENCE = %r{\A(?:\./|\$/)[^@\s]+\z}
 WORKFLOW_PATH = %r{\A\.github/workflows/.+\.ya?ml\z}
 ACTION_METADATA_PATH = %r{(?:\A|/)action\.ya?ml\z}
 
@@ -126,23 +126,23 @@ def sequence_items(node, context)
   resolved.children
 end
 
-def each_mapping_uses(node, context)
+def each_mapping_uses(node, context, reference_kind)
   mapping_values(node, "uses", context).each do |key, value|
     location = "line #{key.start_line + 1}, column #{key.start_column + 1}"
-    yield scalar_value(value, context), location
+    yield scalar_value(value, context), location, reference_kind
   end
 end
 
 def each_steps_uses(node, context, &block)
   sequence_items(node, context).each do |step|
-    each_mapping_uses(step, context, &block)
+    each_mapping_uses(step, context, :action, &block)
   end
 end
 
 def each_workflow_uses(root, context, &block)
   mapping_values(root, "jobs", context).each do |_jobs_key, jobs|
     mapping_entries(jobs, context).each do |_job_name, job|
-      each_mapping_uses(job, context, &block)
+      each_mapping_uses(job, context, :workflow, &block)
       mapping_values(job, "steps", context).each do |_steps_key, steps|
         each_steps_uses(steps, context, &block)
       end
@@ -171,15 +171,19 @@ def each_action_uses(stream, path, &block)
   end
 end
 
-def local_reference_exists?(reference, sources)
-  path = reference.delete_prefix("./").sub(%r{/+\z}, "")
-  candidates =
-    if path.match?(WORKFLOW_PATH)
-      [path]
-    else
-      ["#{path}/action.yml", "#{path}/action.yaml"]
-    end
-  candidates.any? { |candidate| sources.key?(candidate) }
+def same_commit_candidates(reference, reference_kind)
+  return [] unless reference.match?(SAME_COMMIT_REFERENCE)
+
+  path = reference.sub(%r{\A(?:\./|\$/)}, "").sub(%r{/+\z}, "")
+  return [] if path.empty?
+
+  if reference_kind == :workflow
+    path.match?(WORKFLOW_PATH) ? [path] : []
+  elsif path.match?(WORKFLOW_PATH)
+    []
+  else
+    ["#{path}/action.yml", "#{path}/action.yaml"]
+  end
 end
 
 begin
@@ -191,7 +195,7 @@ begin
   sources.each do |path, content|
     begin
       stream = Psych.parse_stream(content, filename: path)
-      each_action_uses(stream, path) do |reference, location|
+      each_action_uses(stream, path) do |reference, location, reference_kind|
         if reference.nil?
           errors << "#{path}: #{location} uses must be a scalar string"
         elsif reference.start_with?("docker://")
@@ -200,12 +204,15 @@ begin
           else
             errors << "#{path}: #{location} uses an unpinned Docker image #{reference.inspect}"
           end
-        elsif reference.start_with?("./")
-          if reference.match?(LOCAL_ACTION_REFERENCE) &&
-              (options[:stdin] || local_reference_exists?(reference, sources))
+        elsif reference.start_with?("./") || reference.start_with?("$/")
+          candidates = same_commit_candidates(reference, reference_kind)
+          if !candidates.empty? &&
+              (options[:stdin] || candidates.any? { |candidate| sources.key?(candidate) })
             local_count += 1
           else
-            errors << "#{path}: #{location} has an invalid local action reference #{reference.inspect}"
+            errors <<
+              "#{path}: #{location} has an invalid same-commit action or workflow reference " \
+              "#{reference.inspect}"
           end
         elsif reference.match?(GIT_ACTION_REFERENCE)
           pinned_count += 1

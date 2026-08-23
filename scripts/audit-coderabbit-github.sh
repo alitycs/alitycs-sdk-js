@@ -11,6 +11,7 @@ readonly gate_client_id_variable="ALITYCS_CODERABBIT_GATE_CLIENT_ID"
 readonly gate_secret="ALITYCS_CODERABBIT_GATE_PRIVATE_KEY"
 readonly github_actions_app_id="15368"
 readonly protected_workflow_tree=".github/workflows"
+readonly sdk_repository_pattern='^alitycs-sdk-[a-z0-9]+(-[a-z0-9]+)*$'
 readonly -a protected_files=(
 	".coderabbit.yaml"
 )
@@ -123,14 +124,15 @@ gate_repository_pages="$(
 organization_repository_pages="$(
 	gh api --paginate --slurp "orgs/$owner/repos?type=public&per_page=100"
 )"
-jq -e --slurp --arg owner "$owner" --arg repository "$repository" '
+jq -e --slurp --arg owner "$owner" --arg repository "$repository" \
+	--arg sdk_pattern "$sdk_repository_pattern" '
 	.[0] as $gate_pages |
 	.[1] as $organization_pages |
 	[$gate_pages[] | .repositories[]] as $selected |
 	[$organization_pages[] | .[] |
 		select(
 			.owner.login == $owner and
-			(.name | test("^alitycs-sdk-[a-z0-9][a-z0-9._-]*$")) and
+			(.name | test($sdk_pattern)) and
 			.private == false and
 			(.visibility // "public") == "public" and
 			.archived == false and
@@ -142,7 +144,7 @@ jq -e --slurp --arg owner "$owner" --arg repository "$repository" '
 	($selected | length) > 0 and
 	all($selected[];
 		.owner.login == $owner and
-		(.name | test("^alitycs-sdk-[a-z0-9][a-z0-9._-]*$")) and
+		(.name | test($sdk_pattern)) and
 		.private == false and
 		(.visibility // "public") == "public" and
 		.archived == false and

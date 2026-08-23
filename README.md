@@ -96,9 +96,10 @@ on GitHub Actions.
 
 ## Releases
 
-Pushing an annotated `vMAJOR.MINOR.PATCH` tag runs the release workflow. It verifies every package
-version matches the tag, runs the complete test and build suite, creates attested package tarballs
-with SHA-256 checksums, and publishes a GitHub Release. See [Releasing](docs/RELEASING.md).
+Pushing an annotated `vMAJOR.MINOR.PATCH` tag runs the release workflow. It rejects tag commits
+outside reviewed `main` history, verifies every package version, runs the complete test and build
+suite without release credentials, then creates attested package tarballs with SHA-256 checksums
+and publishes a GitHub Release. See [Releasing](docs/RELEASING.md).
 
 ## Community and security
 

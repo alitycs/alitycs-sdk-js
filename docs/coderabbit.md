@@ -111,7 +111,9 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
 1. Create a public `alitycs/alitycs-sdk-<name>` repository with `main` as its default branch,
    install CodeRabbit, and add that SDK alongside the already enrolled SDKs in the
    selected-repository installation of `Alitycs CodeRabbit Gate`. Do not change the Gate App
-   installation to all repositories or select a non-SDK repository.
+   installation to all repositories or select a non-SDK repository. After `alitycs-sdk-`, use
+   lowercase alphanumeric name segments separated by single hyphens, such as
+   `alitycs-sdk-react-native`; dots, underscores, empty segments, and trailing hyphens are invalid.
 2. Add a complete, standalone `.coderabbit.yaml`, both protected gate workflows, their policy
    tests, CI, dependency review, release automation, `README.md`, `CONTRIBUTING.md`,
    `SECURITY.md`, a pull-request template, and `scripts/verify-workflow-pins.rb`. Pin every GitHub
@@ -119,7 +121,9 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
    every `docker://` action to a full lowercase SHA-256 digest. Run
    `./scripts/verify-workflow-pins.rb`, `./scripts/validate-coderabbit.sh`, and the repository policy
    tests before merging the baseline. The structural verifier covers YAML quoting, flow mappings,
-   aliases, duplicate keys, and tracked local composite-action metadata.
+   aliases, duplicate keys, and tracked local composite-action metadata. Same-commit actions and
+   reusable workflows may use GitHub's `$/` syntax or the compatible `./` syntax; both are resolved
+   only to tracked files at the audited commit.
    Copy the pinned schema snapshot, hash-locked validator requirements, and validation script as a
    reviewed set; do not switch validation back to a mutable schema URL or ambient executable.
 3. Create the `coderabbit-gate` environment with a selected deployment-branch policy for `main`

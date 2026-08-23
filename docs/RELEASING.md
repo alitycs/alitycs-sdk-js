@@ -6,9 +6,11 @@ The repository uses one version for `@alitycs/core`, `@alitycs/browser`, and
 1. Update all three package versions and the changelog in a pull request.
 2. Run `bun run check` from the repository root.
 3. Merge the release pull request to `main`.
-4. Create and push an annotated tag matching the package version, for example `v1.1.0`.
-5. The `Release` workflow verifies the tag, builds each package, attests and attaches installable
-   tarballs with SHA-256 checksums, and creates the GitHub Release with generated notes.
+4. Create and push an annotated tag on the merged `main` commit matching the package version, for
+   example `v1.1.0`. Tags whose commit is not reachable from remote `main` are rejected.
+5. The `Release` workflow verifies and builds each package in a read-only job, then a separate
+   minimal-permission job attests and attaches installable tarballs with SHA-256 checksums and
+   creates the GitHub Release with generated notes.
 
 Public npm publication is intentionally not attempted until the organization configures the npm
 namespace and a trusted publisher or `NPM_TOKEN`. Once configured, registry publication must run

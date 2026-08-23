@@ -616,6 +616,9 @@ describe("trusted CodeRabbit workflow", () => {
     expect(gateText).toContain("permission-contents: read");
     expect(gateText).toContain("getOctokit(installationToken)");
     expect(gateText).toContain('"GET /installation/repositories"');
+    expect(gateText).toContain(
+      "const sdkRepositoryPattern = /^alitycs-sdk-[a-z0-9]+(?:-[a-z0-9]+)*$/;",
+    );
     expect(await loadRouteScript()).toContain('context.eventName === "push"');
     expect(signal.on.pull_request_review?.branches).toBeUndefined();
     expect(signal.on.pull_request_review?.types).toEqual([
@@ -626,6 +629,39 @@ describe("trusted CodeRabbit workflow", () => {
     expect(signalText).not.toMatch(
       /actions\/checkout|secrets\.|environment:|concurrency:/,
     );
+  });
+
+  test("builds releases without publish credentials and only from main history", async () => {
+    const releaseText = await Bun.file(".github/workflows/release.yml").text();
+    const release = Bun.YAML.parse(releaseText) as {
+      permissions: Record<string, string>;
+      jobs: {
+        build: { permissions: Record<string, string> };
+        release: {
+          needs: string;
+          permissions: Record<string, string>;
+        };
+      };
+    };
+
+    expect(release.permissions).toEqual({});
+    expect(release.jobs.build.permissions).toEqual({ contents: "read" });
+    expect(release.jobs.release.needs).toBe("build");
+    expect(release.jobs.release.permissions).toEqual({
+      attestations: "write",
+      contents: "write",
+      "id-token": "write",
+    });
+    expect(releaseText).toContain("persist-credentials: false");
+    expect(releaseText).toContain(
+      'git fetch --no-tags --force origin "+refs/heads/main:refs/remotes/origin/main"',
+    );
+    expect(releaseText).toContain('git cat-file -t "$GITHUB_REF"');
+    expect(releaseText).toContain(
+      'git merge-base --is-ancestor "$tag_commit" "$main_commit"',
+    );
+    expect(releaseText).toMatch(/actions\/upload-artifact@[0-9a-f]{40}/);
+    expect(releaseText).toMatch(/actions\/download-artifact@[0-9a-f]{40}/);
   });
 
   test("gates the exact head using current-head CodeRabbit approval", async () => {
@@ -1283,6 +1319,12 @@ describe("trusted CodeRabbit workflow", () => {
     expect(
       docs.match(/\.\/scripts\/validate-coderabbit\.sh/g)?.length ?? 0,
     ).toBeGreaterThanOrEqual(3);
+    expect(docs).toMatch(
+      /From a clean checkout of the merged `main`, rerun `\.\/scripts\/verify-workflow-pins\.rb`,\s+`\.\/scripts\/validate-coderabbit\.sh`, and the repository policy tests, then open/s,
+    );
+    expect(docs).toMatch(
+      /From a clean checkout of the new `main`, rerun the workflow-pin\s+verifier, pinned-schema validator, and policy tests before opening a canary/s,
+    );
   });
 
   test("audits the synchronized commit and exact app allowlists", async () => {
@@ -1323,6 +1365,28 @@ describe("trusted CodeRabbit workflow", () => {
       '"user/installations/$installation_id/repositories?per_page=100"',
     );
     expect(audit).toContain("must select every active public SDK");
+    const sdkRepositoryPattern = /^alitycs-sdk-[a-z0-9]+(?:-[a-z0-9]+)*$/;
+    for (const name of [
+      "alitycs-sdk-js",
+      "alitycs-sdk-jvm",
+      "alitycs-sdk-react-native",
+    ]) {
+      expect(sdkRepositoryPattern.test(name)).toBe(true);
+    }
+    for (const name of [
+      "alitycs-sdk-cpp.v2",
+      "alitycs-sdk-cpp_v2",
+      "alitycs-sdk--go",
+      "alitycs-sdk-go-",
+      "Alitycs-sdk-go",
+    ]) {
+      expect(sdkRepositoryPattern.test(name)).toBe(false);
+    }
+    expect(audit).toContain(
+      "readonly sdk_repository_pattern='^alitycs-sdk-[a-z0-9]+(-[a-z0-9]+)*$'",
+    );
+    expect(audit.match(/test\(\$sdk_pattern\)/g)?.length).toBe(2);
+    expect(docs).toContain("lowercase alphanumeric name segments");
     expect(audit).toContain('--argjson require_gate "$require_gate"');
     expect(audit).toContain('if [[ "${1:-}" == "--pre-restore" ]]');
     expect(docs).toContain(
@@ -1353,11 +1417,15 @@ anchors:
 jobs:
   reusable:
     uses: alitycs/reusable/.github/workflows/ci.yml@main
+  invalid-local-workflow:
+    uses: $/.github/actions/not-a-workflow
   invalid:
     steps:
       - "uses" : actions/checkout@v4
       - { uses: actions/setup-node@v4 }
       - uses: docker://alpine:latest
+      - uses: $/.github/workflows/not-an-action.yml
+      - uses: $/.github/actions/local-action@main
       - *uses-key: *mutable-action
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         uses: actions/cache@v4
@@ -1370,6 +1438,9 @@ jobs:
     expect(invalid.stderr).toContain('"actions/setup-node@v4"');
     expect(invalid.stderr).toContain('"docker://alpine:latest"');
     expect(invalid.stderr).toContain('"actions/cache@v4"');
+    expect(invalid.stderr).toContain('"$/.github/actions/not-a-workflow"');
+    expect(invalid.stderr).toContain('"$/.github/workflows/not-an-action.yml"');
+    expect(invalid.stderr).toContain('"$/.github/actions/local-action@main"');
 
     const flowRedefinition = await runPinVerifier(`
 { jobs: { invalid: { steps: [{ uses: &pin actions/checkout@v4 }, { uses: *pin }] } }, later: &pin actions/checkout@${"e".repeat(40)} }
@@ -1419,6 +1490,8 @@ jobs:
     uses: alitycs/reusable/.github/workflows/ci.yml@${"a".repeat(40)}
     with:
       uses: actions/reusable-input@v4
+  same-commit-workflow:
+    uses: $/.github/workflows/ci.yml
   actions:
     env:
       uses: actions/job-environment@v4
@@ -1430,6 +1503,7 @@ jobs:
           uses: actions/step-environment@v4
       - { uses: "docker://ghcr.io/alitycs/build@sha256:${"c".repeat(64)}" }
       - uses: ./local-action
+      - uses: $/.github/actions/local-action
 `);
     expect(valid.exitCode).toBe(0);
 
@@ -1451,6 +1525,7 @@ runs:
     - uses: actions/checkout@${"d".repeat(40)}
       with:
         uses: actions/composite-input@v4
+    - uses: $/.github/actions/composite-local
 `,
       "action.yml",
     );
@@ -1469,11 +1544,15 @@ runs:
     - uses: actions/checkout@v4
       with:
         uses: actions/harmless-input@v4
+    - uses: $/.github/workflows/not-an-action.yml
 `,
       "action.yaml",
     );
     expect(invalidComposite.exitCode).toBe(1);
     expect(invalidComposite.stderr).toContain('"actions/checkout@v4"');
+    expect(invalidComposite.stderr).toContain(
+      '"$/.github/workflows/not-an-action.yml"',
+    );
     expect(invalidComposite.stderr).not.toContain(
       '"actions/harmless-input@v4"',
     );

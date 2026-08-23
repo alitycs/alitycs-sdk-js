@@ -258,6 +258,7 @@ jobs:
             const gateAppId = Number(process.env.GATE_APP_ID);
             const gateAppSlug = process.env.GATE_APP_SLUG;
             const installationToken = process.env.INSTALLATION_TOKEN;
+            const sdkRepositoryPattern = /^alitycs-sdk-[a-z0-9]+(?:-[a-z0-9]+)*$/;
             const ignoredBots = new Set([
               "dependabot[bot]",
               "renovate[bot]",
@@ -335,7 +336,7 @@ jobs:
                 const invalidRepositories = repositories.filter(
                   (candidate) =>
                     candidate.owner?.login?.toLowerCase() !== owner.toLowerCase() ||
-                    !/^alitycs-sdk-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(candidate.name) ||
+                    !sdkRepositoryPattern.test(candidate.name) ||
                     candidate.private !== false ||
                     candidate.visibility !== "public" ||
                     candidate.archived !== false ||
