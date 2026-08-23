@@ -1,6 +1,6 @@
 import type { EventContext } from './types';
 
-const SDK_VERSION = '1.0.0';
+const SDK_VERSION = '1.0.1';
 
 export function collectContext(): EventContext {
   const ctx: EventContext = {

@@ -31,7 +31,7 @@ function setGlobal(key: string, value: unknown): void {
 describe('collectContext', () => {
   test('returns sdkVersion and sdkLanguage', () => {
     const ctx = collectContext();
-    expect(ctx.sdkVersion).toBe('1.0.0');
+    expect(ctx.sdkVersion).toBe('1.0.1');
     expect(ctx.sdkLanguage).toBe('typescript');
   });
 

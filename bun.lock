@@ -14,7 +14,7 @@
     },
     "sdks/browser": {
       "name": "@alitycs/browser",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "dependencies": {
         "@alitycs/core": "workspace:*",
       },
@@ -31,7 +31,7 @@
     },
     "sdks/browser-snippet": {
       "name": "@alitycs/browser-snippet",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "devDependencies": {
         "@eslint/js": "^10.0.1",
         "@types/node": "^25.3.5",
@@ -46,7 +46,7 @@
     },
     "sdks/core": {
       "name": "@alitycs/core",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "devDependencies": {
         "@eslint/js": "^10.0.1",
         "@types/node": "^25.3.5",

@@ -1,6 +1,6 @@
 {
   "name": "@alitycs/core",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Universal analytics SDK core — event tracking, batching, sessions, HTTP transport",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
