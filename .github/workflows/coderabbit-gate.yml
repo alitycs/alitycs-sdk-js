@@ -338,7 +338,7 @@ jobs:
                     candidate.owner?.login?.toLowerCase() !== owner.toLowerCase() ||
                     !sdkRepositoryPattern.test(candidate.name) ||
                     candidate.private !== false ||
-                    candidate.visibility !== "public" ||
+                    (candidate.visibility !== undefined && candidate.visibility !== "public") ||
                     candidate.archived !== false ||
                     candidate.disabled === true ||
                     candidate.fork !== false ||

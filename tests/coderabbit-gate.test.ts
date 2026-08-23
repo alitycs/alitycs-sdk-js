@@ -35,6 +35,7 @@ interface RunOptions {
   installationChangesDuringEvaluation?: boolean;
   installationMissingCurrent?: boolean;
   installationToken?: string | null;
+  installationVisibility?: "internal" | "omitted";
   invalidSelectedRepository?: boolean;
   mainChangesBeforeConclusion?: boolean;
   newerGateAppearsAfterCreate?: boolean;
@@ -309,7 +310,10 @@ async function runGate(options: RunOptions = {}) {
       name: "alitycs-sdk-js",
       owner: { login: "alitycs" },
       private: false,
-      visibility: "public",
+      visibility:
+        options.installationVisibility === "omitted"
+          ? undefined
+          : (options.installationVisibility ?? "public"),
     },
     {
       archived: false,
@@ -321,7 +325,10 @@ async function runGate(options: RunOptions = {}) {
       name: "alitycs-sdk-jvm",
       owner: { login: "alitycs" },
       private: false,
-      visibility: "public",
+      visibility:
+        options.installationVisibility === "omitted"
+          ? undefined
+          : (options.installationVisibility ?? "public"),
     },
   ];
   const invalidRepository = {
@@ -1229,6 +1236,23 @@ describe("trusted CodeRabbit workflow", () => {
 
     expect(result.failures[0]).toContain("alitycs-api");
     expect(result.updated.at(-1)).toMatchObject({ conclusion: "failure" });
+  });
+
+  test("uses explicit public metadata when optional visibility is omitted", async () => {
+    const accepted = await runGate({
+      installationVisibility: "omitted",
+      reviews: [
+        review("coderabbitai[bot]", "APPROVED", "2026-08-23T12:00:00Z"),
+      ],
+    });
+    expect(accepted.failures).toEqual([]);
+    expect(accepted.updated.at(-1)).toMatchObject({ conclusion: "success" });
+
+    const rejected = await runGate({ installationVisibility: "internal" });
+    expect(rejected.failures[0]).toContain(
+      "only public, independent alitycs-sdk-* repositories on main",
+    );
+    expect(rejected.updated.at(-1)).toMatchObject({ conclusion: "failure" });
   });
 
   test("fails when selected-repository membership changes during evaluation", async () => {
