@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
   chmod,
   mkdir,
@@ -87,6 +87,9 @@ const AsyncFunction = Object.getPrototypeOf(async () => undefined)
   .constructor as new (
   ...arguments_: string[]
 ) => (...arguments_: unknown[]) => Promise<void>;
+
+// Let the subprocess harness's 30-second watchdog report its actionable diagnostic first.
+setDefaultTimeout(60_000);
 
 async function loadWorkflow() {
   return Bun.YAML.parse(await Bun.file(gatePath).text()) as {
