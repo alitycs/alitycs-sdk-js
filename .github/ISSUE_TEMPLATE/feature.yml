@@ -1,0 +1,29 @@
+name: Feature proposal
+description: Propose a change to an existing SDK capability.
+title: "[Proposal]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What integration problem should the SDK solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed API or behavior
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope confirmation
+      options:
+        - label: This proposal uses an existing Alitycs backend capability and does not invent a new product surface.
+          required: true

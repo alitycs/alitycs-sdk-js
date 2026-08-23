@@ -2,8 +2,9 @@
  * Integration tests for full snippet initialization
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { Window } from 'happy-dom';
+import { SDKLoader } from '../src/loader';
 
 describe('Snippet Integration', () => {
   let window: Window;
@@ -140,6 +141,24 @@ describe('Snippet Integration', () => {
     // Should have one page() call in queue
     expect((window as any).alitycs._queue.length).toBeGreaterThan(0);
     expect((window as any).alitycs._queue[0].method).toBe('page');
+    expect((window as any).alitycs._queue[0].args[1]).toMatchObject({
+      path: window.location.pathname,
+      referrer: '',
+      url: window.location.href,
+    });
+  });
+
+  test('automatic first pageview requests the full SDK immediately', () => {
+    const loadSpy = spyOn(SDKLoader.prototype, 'load').mockResolvedValue();
+    const script = document.createElement('script');
+    script.setAttribute('data-api-key', 'test_key');
+    script.setAttribute('data-auto-track', 'true');
+    document.head.appendChild(script);
+
+    require('../src/snippet');
+
+    expect(loadSpy).toHaveBeenCalledTimes(1);
+    loadSpy.mockRestore();
   });
 
   test('should NOT auto-track when autoTrack is false', () => {
@@ -262,6 +281,23 @@ describe('Snippet Integration', () => {
     expect((window as any).alitycs._queue[0].args).toEqual(['event1', { foo: 'bar' }]);
     expect((window as any).alitycs._queue[1].method).toBe('identify');
     expect((window as any).alitycs._queue[1].args).toEqual(['user123']);
+  });
+
+  test('explicit initialization replays both pre-buffered queue formats', () => {
+    const script = document.createElement('script');
+    script.setAttribute('data-api-key', 'test_key');
+    script.setAttribute('data-auto-track', 'false');
+    document.head.appendChild(script);
+    const { initializeSnippet } = require('../src/snippet');
+
+    (window as any).AlitycsSDK = {};
+    (window as any).alitycs = {
+      _queue: [['track', 'array_event'], { method: 'identify', args: ['object_user'] }],
+      loaded: false,
+    };
+    initializeSnippet();
+
+    expect((window as any).alitycs._queue.map((call: any) => call.method)).toEqual(['track', 'identify']);
   });
 
   test('should work with minimal configuration', () => {

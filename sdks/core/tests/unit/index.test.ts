@@ -58,6 +58,79 @@ describe('Alitycs', () => {
     sdk.shutdown();
   });
 
+  test('captureError() creates an explicit error event', async () => {
+    const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+    sdk.captureError('checkout_failed', { retryable: true });
+    await sdk.flush();
+
+    expect(sentPayloads[0].events[0]).toMatchObject({
+      event: 'checkout_failed',
+      eventType: 'error',
+      properties: { retryable: 'true' },
+    });
+
+    await sdk.shutdown();
+  });
+
+  test('trackRevenue() emits the trusted payload without inferring property values', async () => {
+    const sdk = Alitycs.init({ apiKey: 'secret-revenue-key', flushSize: 100 });
+
+    sdk.trackRevenue(
+      {
+        version: 1,
+        kind: 'transaction',
+        factId: 'payment-123',
+        amount: '71.123456789',
+        currency: 'USD',
+        customerId: 'customer-1',
+      },
+      { value: '999999' }
+    );
+    await sdk.flush();
+
+    expect(sentPayloads[0].events[0]).toMatchObject({
+      event: 'revenue_transaction',
+      eventType: 'track',
+      properties: { value: '999999' },
+      revenue: {
+        version: 1,
+        kind: 'transaction',
+        factId: 'payment-123',
+        amount: '71.123456789',
+        currency: 'USD',
+        customerId: 'customer-1',
+      },
+    });
+
+    await sdk.shutdown();
+  });
+
+  test('trackRevenue() rejects lossy and ambiguous payloads', () => {
+    const sdk = Alitycs.init({ apiKey: 'secret-revenue-key', flushSize: 100 });
+
+    expect(() =>
+      sdk.trackRevenue({
+        version: 1,
+        kind: 'transaction',
+        factId: 'exponent',
+        amount: '1e3',
+        currency: 'USD',
+      })
+    ).toThrow('non-exponent decimal string');
+    expect(() =>
+      sdk.trackRevenue({
+        version: 1,
+        kind: 'transaction',
+        factId: 'precision',
+        amount: '123456789012345678901234567890123456789',
+        currency: 'USD',
+      })
+    ).toThrow('38 digits');
+
+    sdk.shutdown();
+  });
+
   test('identify() sets userId on events', async () => {
     const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
 
@@ -82,6 +155,58 @@ describe('Alitycs', () => {
     await sdk.shutdown();
   });
 
+  test('reset() clears user identity and rotates anonymous session identity', async () => {
+    const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+    sdk.identify('user-42');
+    sdk.track('before_reset');
+    sdk.reset();
+    sdk.track('after_reset');
+
+    await sdk.flush();
+
+    const events = sentPayloads[0].events;
+    expect(events[1].userId).toBe('user-42');
+    expect(events[2].userId).toBeUndefined();
+    expect(events[2].anonymousId).not.toBe(events[1].anonymousId);
+    expect(events[2].sessionId).not.toBe(events[1].sessionId);
+
+    await sdk.shutdown();
+  });
+
+  test('restores the identified user from persisted session state', async () => {
+    const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    const values = new Map<string, string>();
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => values.get(key) ?? null,
+        removeItem: (key: string) => values.delete(key),
+        setItem: (key: string, value: string) => values.set(key, value),
+      },
+    });
+
+    try {
+      const first = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+      first.identify('user-persisted');
+      await first.shutdown();
+
+      sentPayloads = [];
+      const restored = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+      restored.track('after_reload');
+      await restored.flush();
+
+      expect(sentPayloads[0].events[0].userId).toBe('user-persisted');
+      await restored.shutdown();
+    } finally {
+      if (originalStorage) {
+        Object.defineProperty(globalThis, 'localStorage', originalStorage);
+      } else {
+        delete (globalThis as { localStorage?: unknown }).localStorage;
+      }
+    }
+  });
+
   test('page() creates a page event', async () => {
     const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
 
@@ -94,6 +219,21 @@ describe('Alitycs', () => {
     expect(event.event).toBe('Dashboard');
     expect(event.eventType).toBe('page');
     expect(event.properties.section).toBe('home');
+
+    await sdk.shutdown();
+  });
+
+  test('page() keeps the canonical page event type for default and custom names', async () => {
+    const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+    sdk.page();
+    sdk.page('Pricing viewed');
+    await sdk.flush();
+
+    expect(sentPayloads[0].events).toMatchObject([
+      { event: 'page_view', eventType: 'page' },
+      { event: 'Pricing viewed', eventType: 'page' },
+    ]);
 
     await sdk.shutdown();
   });
@@ -398,6 +538,57 @@ describe('Alitycs', () => {
       await moduleFlush();
       const event = sentPayloads[0].events[0];
       expect(event.properties.version).toBe('1.0');
+      await moduleShutdown();
+    });
+
+    test('module-level API delegates the complete event and global-property surface', async () => {
+      const {
+        init: moduleInit,
+        track: moduleTrack,
+        trackRevenue: moduleTrackRevenue,
+        captureError: moduleCaptureError,
+        identify: moduleIdentify,
+        reset: moduleReset,
+        page: modulePage,
+        flush: moduleFlush,
+        shutdown: moduleShutdown,
+        setGlobalProperties: moduleSetGlobal,
+        removeGlobalProperties: moduleRemoveGlobal,
+        clearGlobalProperties: moduleClearGlobal,
+      } = await import('../../src/index');
+
+      moduleInit({ apiKey: 'test-key', flushSize: 100 });
+      moduleSetGlobal({ retained: true, removed: true });
+      moduleRemoveGlobal(['removed']);
+      moduleIdentify('module-user', { plan: 'pro' });
+      moduleCaptureError('module_error', { retryable: false });
+      modulePage('Module page', { url: 'not a standard URL', referrer: 'https://referrer.test/' });
+      moduleTrackRevenue({
+        version: 1,
+        kind: 'transaction',
+        factId: 'module-payment',
+        amount: '42.50',
+        currency: 'USD',
+      });
+      moduleReset();
+      moduleTrack('after_reset');
+      moduleClearGlobal();
+      moduleTrack('after_clear');
+      await moduleFlush();
+
+      const events = sentPayloads[0].events;
+      expect(events.map(event => event.event)).toEqual([
+        'identify',
+        'module_error',
+        'Module page',
+        'revenue_transaction',
+        'after_reset',
+        'after_clear',
+      ]);
+      expect(events[0].properties).toMatchObject({ retained: 'true', plan: 'pro' });
+      expect(events[0].properties.removed).toBeUndefined();
+      expect(events.at(-1)?.properties.retained).toBeUndefined();
+      expect(events[4].userId).toBeUndefined();
       await moduleShutdown();
     });
 

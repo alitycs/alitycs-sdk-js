@@ -112,4 +112,86 @@ describe('AutoCapture pushState/replaceState tracking', () => {
     expect(history.pushState).toBe(originalPush);
     expect(history.replaceState).toBe(originalReplace);
   });
+
+  test('removes capture listeners with the same capture option', () => {
+    const ac = new AutoCapture(() => {});
+    ac.start();
+    ac.stop();
+
+    const calls = ((globalThis as any).document.removeEventListener as ReturnType<typeof mock>).mock.calls;
+    const clickRemoval = calls.find((call: unknown[]) => call[0] === 'click');
+    expect(clickRemoval?.[2]).toBe(true);
+  });
+
+  test('uses the page API once for the initial document and each SPA navigation', () => {
+    const tracked: string[] = [];
+    const pages: Array<Record<string, unknown>> = [];
+    const ac = new AutoCapture(
+      name => tracked.push(name),
+      properties => pages.push(properties)
+    );
+
+    ac.start();
+    history.pushState({}, '', '/pricing');
+    history.replaceState({}, '', '/pricing?plan=pro');
+    const popstateCall = ((globalThis as any).window.addEventListener as ReturnType<typeof mock>).mock.calls.find(
+      (call: unknown[]) => call[0] === 'popstate'
+    );
+    (popstateCall?.[1] as EventListener)(new Event('popstate'));
+
+    expect(tracked).toEqual([]);
+    expect(pages).toHaveLength(4);
+    expect(pages[0]).toMatchObject({
+      url: 'http://localhost/',
+      hostname: 'localhost',
+      path: '/',
+      title: 'Test',
+    });
+
+    ac.stop();
+  });
+
+  test('captures interactive element clicks and ignores non-interactive targets', () => {
+    const tracked: Array<{ name: string; props: Record<string, unknown> }> = [];
+    const ac = new AutoCapture((name, props) => tracked.push({ name, props }));
+    ac.start();
+
+    const clickHandler = ((globalThis as any).document.addEventListener as ReturnType<typeof mock>).mock.calls.find(
+      (call: unknown[]) => call[0] === 'click'
+    )?.[1] as EventListener;
+    clickHandler({
+      target: {
+        tagName: 'BUTTON',
+        id: 'checkout',
+        className: 'primary',
+        textContent: '  Buy now  ',
+        href: '',
+        getAttribute: () => null,
+      },
+    } as unknown as Event);
+    clickHandler({
+      target: {
+        tagName: 'DIV',
+        id: '',
+        className: '',
+        textContent: 'Ignored',
+        getAttribute: () => null,
+      },
+    } as unknown as Event);
+
+    expect(tracked.filter(event => event.name === '$click')).toEqual([
+      {
+        name: '$click',
+        props: {
+          tag: 'BUTTON',
+          id: 'checkout',
+          classes: 'primary',
+          text: 'Buy now',
+          href: undefined,
+        },
+      },
+    ]);
+
+    ac.stop();
+  });
 });

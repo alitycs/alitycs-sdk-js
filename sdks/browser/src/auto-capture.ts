@@ -1,9 +1,16 @@
 type TrackFn = (eventName: string, properties: Record<string, unknown>) => void;
+type PageFn = (properties: Record<string, unknown>, capturedAt?: number) => void;
 
 interface Listener {
   target: EventTarget;
   event: string;
   handler: EventListener;
+  capture: boolean;
+}
+
+export interface CapturedPage {
+  capturedAt: number;
+  properties: Record<string, unknown>;
 }
 
 export class AutoCapture {
@@ -12,9 +19,12 @@ export class AutoCapture {
   private originalPushState: typeof history.pushState | null = null;
   private originalReplaceState: typeof history.replaceState | null = null;
 
-  constructor(private track: TrackFn) {}
+  constructor(
+    private track: TrackFn,
+    private page: PageFn = properties => track('$pageview', properties)
+  ) {}
 
-  start(): void {
+  start(initialPage?: CapturedPage): void {
     if (this.running) return;
     if (typeof document === 'undefined') return;
     this.running = true;
@@ -40,15 +50,24 @@ export class AutoCapture {
       }
     }
 
-    // Track initial page view
-    this.trackPageView();
+    // Preserve the document snapshot captured by the lightweight snippet. If
+    // navigation happened while the full SDK loaded, capture the current route
+    // immediately after it so first-touch ordering remains truthful.
+    this.trackPageView(initialPage);
+    if (
+      typeof initialPage?.properties.url === 'string' &&
+      typeof window !== 'undefined' &&
+      initialPage.properties.url !== window.location.href
+    ) {
+      this.trackPageView();
+    }
   }
 
   stop(): void {
     if (!this.running) return;
     this.running = false;
-    for (const { target, event, handler } of this.listeners) {
-      target.removeEventListener(event, handler);
+    for (const { target, event, handler, capture } of this.listeners) {
+      target.removeEventListener(event, handler, capture);
     }
     this.listeners = [];
 
@@ -71,7 +90,7 @@ export class AutoCapture {
 
   private addListener(target: EventTarget, event: string, handler: EventListener, capture = false): void {
     target.addEventListener(event, handler, capture);
-    this.listeners.push({ target, event, handler });
+    this.listeners.push({ target, event, handler, capture });
   }
 
   private handleClick(event: Event): void {
@@ -95,13 +114,19 @@ export class AutoCapture {
     this.trackPageView();
   }
 
-  private trackPageView(): void {
+  private trackPageView(snapshot?: CapturedPage): void {
     try {
-      this.track('$pageview', {
-        url: window.location.href,
-        path: window.location.pathname,
+      if (snapshot) {
+        this.page(snapshot.properties, snapshot.capturedAt);
+        return;
+      }
+      const location = window.location;
+      this.page({
+        url: location.href,
+        hostname: location.hostname || new URL(location.href).hostname,
+        path: location.pathname,
         title: document.title || undefined,
-        referrer: document.referrer || undefined,
+        referrer: document.referrer || '',
       });
     } catch {
       // Auto-capture should never break the page

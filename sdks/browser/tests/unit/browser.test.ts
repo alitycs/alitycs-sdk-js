@@ -123,6 +123,7 @@ describe('initializeFromSnippet', () => {
       _config: { apiKey: 'test-key' },
       _queue: [
         { method: 'track', args: ['button_click', { color: 'red' }], timestamp: Date.now() },
+        { method: 'captureError', args: ['checkout_failed', { code: 'PAYMENT' }], timestamp: Date.now() },
         { method: 'identify', args: ['user-1', { plan: 'pro' }], timestamp: Date.now() },
         { method: 'page', args: ['Home'], timestamp: Date.now() },
       ],
@@ -139,13 +140,15 @@ describe('initializeFromSnippet', () => {
     expect(sentPayloads.length).toBeGreaterThanOrEqual(1);
 
     const allEvents = sentPayloads.flatMap((p: BatchPayload) => p.events);
-    expect(allEvents.length).toBe(3);
+    expect(allEvents.length).toBe(4);
     expect(allEvents[0].event).toBe('button_click');
     expect(allEvents[0].eventType).toBe('track');
-    expect(allEvents[1].event).toBe('identify');
-    expect(allEvents[1].eventType).toBe('identify');
-    expect(allEvents[2].event).toBe('Home');
-    expect(allEvents[2].eventType).toBe('page');
+    expect(allEvents[1].event).toBe('checkout_failed');
+    expect(allEvents[1].eventType).toBe('error');
+    expect(allEvents[2].event).toBe('identify');
+    expect(allEvents[2].eventType).toBe('identify');
+    expect(allEvents[3].event).toBe('Home');
+    expect(allEvents[3].eventType).toBe('page');
   });
 
   test('queued setGlobalProperties calls are replayed', async () => {
@@ -231,8 +234,64 @@ describe('initializeFromSnippet', () => {
 
     const allEvents = sentPayloads.flatMap((p: any) => p.events);
     const pageEvents = allEvents.filter((e: any) => e.eventType === 'page');
-    // Bare page() (args=[]) should be skipped; only autoCapture's $pageview remains
-    expect(pageEvents.every((e: any) => e.event === '$pageview')).toBe(true);
+    // Bare page() (args=[]) is skipped; only autoCapture's canonical initial page event remains.
+    expect(pageEvents).toHaveLength(1);
+    expect(pageEvents[0].event).toBe('page_view');
+  });
+
+  test('preserves the snippet document before a navigation during SDK load', async () => {
+    const { initializeFromSnippet } = await import('../../src/browser');
+    const capturedAt = 1_700_000_000_000;
+    const originalNow = Date.now;
+    (globalThis as any).window.location = {
+      href: 'http://localhost/pricing',
+      hostname: 'localhost',
+      pathname: '/pricing',
+      search: '',
+    };
+    (globalThis as any).document.title = 'Pricing';
+    (globalThis as any).window.alitycs = {
+      _config: { apiKey: 'test-key', autoCapture: true },
+      _queue: [
+        {
+          method: 'page',
+          args: [
+            undefined,
+            {
+              hostname: 'localhost',
+              path: '/',
+              referrer: 'https://google.com/',
+              title: 'Landing',
+              url: 'http://localhost/?utm_source=google',
+            },
+          ],
+          timestamp: capturedAt,
+        },
+      ],
+      loaded: false,
+    };
+
+    Date.now = () => capturedAt;
+    try {
+      initializeFromSnippet();
+    } finally {
+      Date.now = originalNow;
+    }
+    const sdk = (globalThis as any).window.AlitycsSDK;
+    await sdk.flush();
+
+    const pageEvents = sentPayloads
+      .flatMap((payload: BatchPayload) => payload.events)
+      .filter(event => event.eventType === 'page');
+    expect(pageEvents).toHaveLength(2);
+    expect(pageEvents.map(event => event.context.url)).toEqual([
+      'http://localhost/?utm_source=google',
+      'http://localhost/pricing',
+    ]);
+    expect(pageEvents[0].context.referrer).toBe('https://google.com/');
+    expect(pageEvents[0].context.utmSource).toBe('google');
+    expect(pageEvents[0].properties.title).toBe('Landing');
+    expect(pageEvents.map(event => event.timestamp)).toEqual([capturedAt, capturedAt + 1]);
   });
 
   test('replays custom page("Name") when autoCapture is true', async () => {
@@ -369,7 +428,33 @@ describe('initializeFromSnippet', () => {
     }).not.toThrow();
 
     expect(() => {
+      api.reset();
+    }).not.toThrow();
+
+    expect(() => {
       api.page('TestPage');
     }).not.toThrow();
+
+    api.captureError('named_error', { code: 'E_NAMED' });
+    api.setGlobalProperties({ suite: 'snippet-api', removable: 'yes' });
+    expect(api.getGlobalProperties()).toEqual({ suite: 'snippet-api', removable: 'yes' });
+    api.removeGlobalProperties(['removable']);
+    api.clearGlobalProperties();
+
+    api('captureError', 'generic_error', { code: 'E_GENERIC' });
+    api('identify', 'generic-user', { plan: 'pro' });
+    api('page', 'GenericPage');
+    api('setGlobalProperties', { suite: 'generic' });
+    api('removeGlobalProperties', ['suite']);
+    api('clearGlobalProperties');
+    api('reset');
+
+    await api.flush();
+    const events = sentPayloads.flatMap((payload: BatchPayload) => payload.events);
+    expect(events.map(event => event.event)).toEqual(
+      expect.arrayContaining(['named_error', 'generic_error', 'identify', 'GenericPage'])
+    );
+
+    await api.shutdown();
   });
 });

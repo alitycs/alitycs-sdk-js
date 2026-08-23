@@ -348,5 +348,33 @@ describe('SDKLoader', () => {
       expect(timeouts).toContain(3000);
       expect(timeouts).toContain(5000);
     });
+
+    test('idle and timeout callbacks request loading when the SDK stays pending', () => {
+      const idleCallbacks: Array<() => void> = [];
+      const timeoutCallbacks: Array<() => void> = [];
+      const requestIdleCallbackMock = mock((callback: () => void) => {
+        idleCallbacks.push(callback);
+        return 1;
+      });
+      const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((callback: () => void) => {
+        timeoutCallbacks.push(callback);
+        return 1 as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout);
+      (window as any).requestIdleCallback = requestIdleCallbackMock;
+      (global as any).requestIdleCallback = requestIdleCallbackMock;
+      loader = new SDKLoader(config);
+      const loadSpy = spyOn(loader, 'load').mockResolvedValue();
+
+      try {
+        loader.setup(false);
+        idleCallbacks.forEach(callback => callback());
+        timeoutCallbacks.forEach(callback => callback());
+      } finally {
+        setTimeoutSpy.mockRestore();
+        delete (global as any).requestIdleCallback;
+      }
+
+      expect(loadSpy).toHaveBeenCalledTimes(2);
+    });
   });
 });

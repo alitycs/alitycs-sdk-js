@@ -33,11 +33,14 @@ function makeEvent(name = 'test_event'): AnalyticsEvent {
 
 function makeMockTransport() {
   const sent: BatchPayload[] = [];
+  const options: unknown[] = [];
   return {
-    send: mock(async (payload: BatchPayload) => {
+    send: mock(async (payload: BatchPayload, sendOptions?: unknown) => {
       sent.push(payload);
+      options.push(sendOptions);
     }),
     sent,
+    options,
   };
 }
 
@@ -137,5 +140,84 @@ describe('BatchManager', () => {
     await new Promise(r => setTimeout(r, 100));
 
     expect(transport.sent.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('keepalive flush bounds the payload and forwards transport options', async () => {
+    const transport = makeMockTransport();
+    bm = new BatchManager(makeConfig({ flushSize: 100 }), transport as any, createLogger(false));
+
+    for (let index = 0; index < 5; index++) {
+      bm.add({ ...makeEvent(`page-${index}`), properties: { payload: 'x'.repeat(120) } });
+    }
+
+    await bm.flush({ keepalive: true, maxPayloadBytes: 700, maxRetries: 0 });
+
+    expect(transport.sent).toHaveLength(1);
+    expect(new TextEncoder().encode(JSON.stringify(transport.sent[0])).byteLength).toBeLessThanOrEqual(700);
+    expect(transport.options[0]).toEqual({ keepalive: true, maxRetries: 0 });
+    expect(transport.sent[0].events.length).toBeGreaterThan(0);
+    expect(bm.pending).toBeGreaterThan(0);
+  });
+
+  test('keepalive flush sends newly queued events while a normal flush is in flight', async () => {
+    let finishNormalFlush: (() => void) | undefined;
+    const normalFlushPending = new Promise<void>(resolve => {
+      finishNormalFlush = resolve;
+    });
+    const sent: BatchPayload[] = [];
+    const options: unknown[] = [];
+    const transport = {
+      send: mock(async (payload: BatchPayload, sendOptions?: unknown) => {
+        sent.push(payload);
+        options.push(sendOptions);
+        if (sent.length === 1) await normalFlushPending;
+      }),
+    };
+    bm = new BatchManager(makeConfig({ flushSize: 100 }), transport as any, createLogger(false));
+
+    bm.add(makeEvent('normal'));
+    const normalFlush = bm.flush();
+    await Promise.resolve();
+    bm.add(makeEvent('page-exit'));
+
+    await bm.flush({ keepalive: true, maxPayloadBytes: 60_000, maxRetries: 0 });
+
+    expect(sent).toHaveLength(2);
+    expect(sent[1].events.map(event => event.event)).toEqual(['page-exit', 'normal']);
+    expect(options[1]).toEqual({ keepalive: true, maxRetries: 0 });
+    expect(bm.pending).toBe(0);
+
+    finishNormalFlush?.();
+    await normalFlush;
+  });
+
+  test('keepalive flush replays an unresolved normal batch during page exit', async () => {
+    let finishNormalFlush: (() => void) | undefined;
+    const normalFlushPending = new Promise<void>(resolve => {
+      finishNormalFlush = resolve;
+    });
+    const sent: BatchPayload[] = [];
+    const options: unknown[] = [];
+    const transport = {
+      send: mock(async (payload: BatchPayload, sendOptions?: unknown) => {
+        sent.push(payload);
+        options.push(sendOptions);
+        if (sent.length === 1) await normalFlushPending;
+      }),
+    };
+    bm = new BatchManager(makeConfig({ flushSize: 100 }), transport as any, createLogger(false));
+
+    bm.add(makeEvent('in-flight'));
+    const normalFlush = bm.flush();
+    await Promise.resolve();
+
+    await bm.flush({ keepalive: true, maxPayloadBytes: 60_000, maxRetries: 0 });
+
+    expect(sent).toHaveLength(2);
+    expect(sent[1].events.map(event => event.event)).toEqual(['in-flight']);
+    expect(options[1]).toEqual({ keepalive: true, maxRetries: 0 });
+
+    finishNormalFlush?.();
+    await normalFlush;
   });
 });

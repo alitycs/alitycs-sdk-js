@@ -9,7 +9,7 @@
  */
 
 import { parseScriptConfig } from './config';
-import { CallQueue } from './queue';
+import { CallQueue, replayBufferedCalls } from './queue';
 import { createStub } from './stub';
 import { SDKLoader } from './loader';
 
@@ -17,7 +17,7 @@ import { SDKLoader } from './loader';
  * Main initialization function
  * This runs immediately when the script loads
  */
-(function initializeSnippet() {
+export function initializeSnippet(): void {
   // Skip if already initialized
   if (window.alitycs && window.alitycs.loaded) {
     return;
@@ -33,42 +33,36 @@ import { SDKLoader } from './loader';
   // Create call queue
   const queue = new CallQueue();
 
-  // Create stub object and attach to window
-  let hadPreBufferedCalls = false;
-  if (!window.alitycs) {
-    window.alitycs = createStub(queue, config);
-  } else {
-    // If alitycs already exists (user defined it), preserve any existing calls
-    const existingCalls = (window.alitycs as any)._queue || [];
-    hadPreBufferedCalls = existingCalls.length > 0;
-    existingCalls.forEach((call: any) => {
-      if (Array.isArray(call)) {
-        // Format: ['method', ...args]
-        queue.push(call[0], call.slice(1));
-      } else if (call.method) {
-        // Format: { method, args }
-        queue.push(call.method, call.args);
-      }
-    });
-    window.alitycs = createStub(queue, config);
-  }
-
-  // Setup SDK loader — load immediately if pre-buffered calls exist
-  const loader = new SDKLoader(config);
-  loader.setup(hadPreBufferedCalls);
+  // Preserve calls buffered by an inline bootstrap, then attach the real stub.
+  const hadPreBufferedCalls = replayBufferedCalls(queue, (window.alitycs as any)?._queue);
+  window.alitycs = createStub(queue, config);
 
   // Auto-track page view if enabled
   if (config.autoTrack) {
-    window.alitycs('page');
+    const location = window.location;
+    window.alitycs('page', undefined, {
+      url: location.href,
+      hostname: location.hostname,
+      path: location.pathname,
+      title: document.title || undefined,
+      referrer: document.referrer || '',
+    });
   }
+
+  // Setup SDK loader after auto-track so the automatic first pageview loads immediately.
+  const loader = new SDKLoader(config);
+  loader.setup(hadPreBufferedCalls || queue.size() > 0);
 
   if (config.debug) {
     console.warn('[Alitycs] Snippet initialized');
   }
-})();
+}
+
+initializeSnippet();
 
 // Export for testing purposes
 export { parseScriptConfig } from './config';
 export { CallQueue } from './queue';
+export { replayBufferedCalls } from './queue';
 export { createStub } from './stub';
 export { SDKLoader } from './loader';

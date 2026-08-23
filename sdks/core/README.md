@@ -1,93 +1,110 @@
-# @alitycs/sdk-typescript
+# `@alitycs/core`
 
-TypeScript analytics SDK for the Alitycs Platform.
+Universal TypeScript SDK for sending product-analytics events to Alitycs from trusted server and
+JavaScript runtimes. It provides batching, bounded queues, sessions, retry, global properties, and
+explicit lifecycle control without browser-only autocapture.
 
 ## Installation
 
+The package is prepared for public npm publication:
+
 ```bash
-npm install @alitycs/sdk-typescript
-# or
-bun add @alitycs/sdk-typescript
+bun add @alitycs/core
+# or: npm install @alitycs/core
 ```
 
-## Quick Start
+Until the first npm release is published, install the archive attached to the matching
+[GitHub Release](https://github.com/alitycs/alitycs-sdk-js/releases):
 
-```typescript
-import { Alitycs } from '@alitycs/sdk-typescript';
-
-const sdk = Alitycs.init({ apiKey: 'your-api-key' });
-
-sdk.track('button_clicked', { label: 'Sign Up' });
-sdk.identify('user-123', { plan: 'premium' });
-sdk.page('Home');
+```bash
+bun add https://github.com/alitycs/alitycs-sdk-js/releases/download/v1.0.0/alitycs-core-1.0.0.tgz
 ```
 
-## API Reference
+## Usage
 
-### Class API
+```ts
+import { Alitycs } from '@alitycs/core';
 
-```typescript
-const sdk = Alitycs.init(config); // Create an instance
+const analytics = Alitycs.init({
+  apiKey: process.env.ALITYCS_API_KEY!,
+});
 
-sdk.track(eventName, properties?);  // Track a custom event
-sdk.identify(userId, traits?);      // Identify a user
-sdk.page(name?, properties?);       // Track a page view
-await sdk.flush();                  // Flush pending events
-await sdk.shutdown();               // Stop SDK and flush remaining events
-sdk.pending;                        // Number of events in the queue
+analytics.identify('usr_123', { plan: 'pro' });
+analytics.track('button_clicked', { label: 'Start trial' });
+analytics.page('Dashboard');
+analytics.captureError('checkout_failed', { provider: 'stripe' });
+
+await analytics.shutdown();
 ```
 
-### Module-level Convenience Functions
+`reset()` clears the user identity and rotates both the anonymous and session IDs. Global
+properties persist until they are explicitly removed or cleared:
 
-These use a shared default instance:
+```ts
+analytics.setGlobalProperties({ appVersion: '1.4.0' });
+analytics.track('feature_used', { feature: 'ask_data' });
+analytics.reset();
+```
 
-```typescript
-import { init, track, identify, page, flush, shutdown } from '@alitycs/sdk-typescript';
+### Trusted revenue events
 
-init({ apiKey: 'your-api-key' });
+Revenue ingestion is server-only. Use a secret key with `revenue:write`; never expose that key in a
+browser application.
 
-track('button_clicked', { label: 'Sign Up' });
-identify('user-123', { plan: 'premium' });
-page('Home');
-await flush();
-await shutdown();
+```ts
+analytics.trackRevenue({
+  version: 1,
+  kind: 'transaction',
+  factId: 'order_123',
+  amount: '19.99',
+  currency: 'USD',
+});
 ```
 
 ## Configuration
 
-```typescript
-interface AlitycsConfig {
-  apiKey: string;              // Required. Your API key.
-  endpoint?: string;           // Default: 'https://api.alitycs.com/events'
-  flushInterval?: number;      // Default: 10000 (ms)
-  flushSize?: number;          // Default: 25
-  maxQueueSize?: number;       // Default: 1000
-  maxRetries?: number;         // Default: 3
-  autoCapture?: boolean;       // Default: false
-  debug?: boolean;             // Default: false
-  sessionTimeout?: number;     // Default: 1800000 (30 min)
-  batching?: boolean;          // Default: true
-}
-```
+| Option           | Default                          | Description                                                                        |
+| ---------------- | -------------------------------- | ---------------------------------------------------------------------------------- |
+| `apiKey`         | required                         | Publishable key for ordinary ingest, or a secret key for trusted server operations |
+| `endpoint`       | `https://api.alitycs.com/events` | Worker ingestion endpoint                                                          |
+| `flushInterval`  | `10000`                          | Batch flush interval in milliseconds                                               |
+| `flushSize`      | `25`                             | Queue size that triggers a flush                                                   |
+| `maxQueueSize`   | `1000`                           | Maximum queued events                                                              |
+| `maxRetries`     | `3`                              | Retry attempts for retryable transport failures                                    |
+| `sessionTimeout` | `1800000`                        | Inactivity timeout in milliseconds                                                 |
+| `batching`       | `true`                           | Send queued batches or one event per request                                       |
+| `debug`          | `false`                          | Enable SDK diagnostics                                                             |
 
-## Features
+Requests use `Authorization: Bearer <apiKey>` and `Content-Type: application/json`. Event payloads
+conform to [schema v0.4.0](../../specs/event-schema.json).
 
-- Batching with configurable flush size and interval
-- Fire-and-forget mode (`batching: false`) for immediate sends
-- Exponential backoff retry
-- Session management with automatic rotation on timeout
-- Auto-capture for clicks and page views
-- Browser context collection (locale, timezone, user agent, screen, UTM params)
-- Zero dependencies
+## API surface
 
-## Testing
+- `track(eventName, properties?, options?)`
+- `trackRevenue(payload, properties?)`
+- `identify(userId, traits?, options?)`
+- `reset()`
+- `page(name?, properties?, options?)`
+- `captureError(errorName, properties?, options?)`
+- `setGlobalProperties`, `getGlobalProperties`, `removeGlobalProperties`, `clearGlobalProperties`
+- `flush()` and `shutdown()`
+- `pending`
+
+The same surface is available through module-level convenience functions after `init()`.
+
+## Development
 
 ```bash
-bun test                   # Run all tests
-bun test --coverage        # Run with coverage
-bun run type-check         # TypeScript type checking
+bun install --frozen-lockfile
+bun run type-check
+bun run lint
+bun run format:check
+bun test
+bun run build:all
 ```
+
+The committed test configuration enforces at least 90% line and 85% function coverage.
 
 ## License
 
-MIT
+[MIT](LICENSE)

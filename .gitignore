@@ -1,6 +1,6 @@
 # Dependencies
 node_modules/
-bun.lock
+sdks/*/bun.lock
 
 # Build output
 sdks/*/dist/
@@ -26,6 +26,8 @@ sdks/*/vendor/
 # Environment files
 .env
 .env.local
+.env.*
+!.env.example
 .env.*.local
 
 # Test coverage

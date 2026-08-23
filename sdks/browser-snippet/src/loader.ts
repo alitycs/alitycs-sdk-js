@@ -19,7 +19,7 @@ export class SDKLoader {
   setup(hasQueuedCalls = false): void {
     // If there are pre-buffered calls, load immediately
     if (hasQueuedCalls) {
-      this.load();
+      this.requestLoad();
       return;
     }
 
@@ -39,7 +39,7 @@ export class SDKLoader {
   private setupInteractionLoading(): void {
     const loadOnce = () => {
       if (!this.loaded && !this.loading) {
-        this.load();
+        this.requestLoad();
         this.removeListeners();
       }
     };
@@ -59,7 +59,7 @@ export class SDKLoader {
       requestIdleCallback(
         () => {
           if (!this.loaded && !this.loading) {
-            this.load();
+            this.requestLoad();
           }
         },
         { timeout: 5000 }
@@ -68,7 +68,7 @@ export class SDKLoader {
       // Fallback for browsers without requestIdleCallback
       setTimeout(() => {
         if (!this.loaded && !this.loading) {
-          this.load();
+          this.requestLoad();
         }
       }, 3000);
     }
@@ -80,7 +80,7 @@ export class SDKLoader {
   private setupTimeoutLoading(): void {
     setTimeout(() => {
       if (!this.loaded && !this.loading) {
-        this.load();
+        this.requestLoad();
       }
     }, 5000);
   }
@@ -179,5 +179,11 @@ export class SDKLoader {
    */
   isLoaded(): boolean {
     return this.loaded;
+  }
+
+  private requestLoad(): void {
+    void Promise.resolve(this.load()).catch(() => {
+      // load() already reports the failure and resets state so a later interaction can retry.
+    });
   }
 }

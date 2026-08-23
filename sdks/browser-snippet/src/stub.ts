@@ -18,7 +18,9 @@ export function createStub(queue: CallQueue, config: SnippetConfig): AlitycsStub
   // Predefined methods for better DX
   const methods = [
     'track',
+    'captureError',
     'identify',
+    'reset',
     'page',
     'setGlobalProperties',
     'removeGlobalProperties',

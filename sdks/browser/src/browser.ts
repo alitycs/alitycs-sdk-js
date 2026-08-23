@@ -1,6 +1,7 @@
 import { BrowserAlitycs } from './index';
-import { createLogger } from '@alitycs/core';
+import { createLogger, type EventOptions } from '@alitycs/core';
 import type { BrowserConfig } from './types';
+import type { CapturedPage } from './auto-capture';
 
 interface SnippetStub {
   _queue: Array<{ method: string; args: unknown[]; timestamp: number }>;
@@ -37,13 +38,33 @@ function initializeFromSnippet(): void {
   };
 
   try {
-    const sdk = BrowserAlitycs.init(sdkConfig);
+    const queue = stub._queue || [];
+    let initialPageIndex = -1;
+    let initialPage: CapturedPage | undefined;
+    if (sdkConfig.autoCapture) {
+      for (let index = queue.length - 1; index >= 0; index--) {
+        const call = queue[index];
+        const properties = call?.method === 'page' ? call.args[1] : undefined;
+        if (!call?.args[0] && properties && typeof properties === 'object') {
+          const url = (properties as Record<string, unknown>).url;
+          if (typeof url === 'string' && url) {
+            initialPageIndex = index;
+            initialPage = {
+              capturedAt: call.timestamp,
+              properties: properties as Record<string, unknown>,
+            };
+            break;
+          }
+        }
+      }
+    }
+    const sdk = BrowserAlitycs.init(sdkConfig, initialPage);
 
     // Process queued calls
-    const queue = stub._queue || [];
-    for (const call of queue) {
+    for (const [index, call] of queue.entries()) {
       try {
-        // Skip bare page() calls when autoCapture is on — autoCapture fires its own $pageview
+        if (index === initialPageIndex) continue;
+        // Skip bare page() calls when autoCapture is on — autoCapture calls page() for the initial document.
         // Custom page('Name', {...}) calls are preserved since they carry user intent
         if (sdkConfig.autoCapture && call.method === 'page' && !call.args[0]) continue;
         const method = call.method as keyof BrowserAlitycs;
@@ -61,9 +82,15 @@ function initializeFromSnippet(): void {
     const win = window as unknown as Record<string, unknown>;
     const api: Record<string, unknown> = Object.assign(
       function (method: string, ...args: unknown[]) {
-        if (method === 'track') sdk.track(args[0] as string, args[1] as Record<string, unknown>, args[2] as any);
-        else if (method === 'identify') sdk.identify(args[0] as string, args[1] as Record<string, unknown>, args[2] as any);
-        else if (method === 'page') sdk.page(args[0] as string, args[1] as Record<string, unknown>, args[2] as any);
+        if (method === 'track')
+          sdk.track(args[0] as string, args[1] as Record<string, unknown>, args[2] as EventOptions);
+        else if (method === 'captureError')
+          sdk.captureError(args[0] as string, args[1] as Record<string, unknown>, args[2] as EventOptions);
+        else if (method === 'identify')
+          sdk.identify(args[0] as string, args[1] as Record<string, unknown>, args[2] as EventOptions);
+        else if (method === 'reset') sdk.reset();
+        else if (method === 'page')
+          sdk.page(args[0] as string, args[1] as Record<string, unknown>, args[2] as EventOptions);
         else if (method === 'setGlobalProperties') sdk.setGlobalProperties(args[0] as Record<string, unknown>);
         else if (method === 'removeGlobalProperties') sdk.removeGlobalProperties(args[0] as string[]);
         else if (method === 'clearGlobalProperties') sdk.clearGlobalProperties();
@@ -72,15 +99,23 @@ function initializeFromSnippet(): void {
       {} as Record<string, unknown>
     );
 
-    api.track = (event: string, properties?: Record<string, unknown>, options?: any) => {
+    api.track = (event: string, properties?: Record<string, unknown>, options?: EventOptions) => {
       sdk.track(event, properties, options);
       return win.alitycs;
     };
-    api.identify = (userId: string, traits?: Record<string, unknown>, options?: any) => {
+    api.captureError = (errorName: string, properties?: Record<string, unknown>, options?: EventOptions) => {
+      sdk.captureError(errorName, properties, options);
+      return win.alitycs;
+    };
+    api.identify = (userId: string, traits?: Record<string, unknown>, options?: EventOptions) => {
       sdk.identify(userId, traits, options);
       return win.alitycs;
     };
-    api.page = (name?: string, properties?: Record<string, unknown>, options?: any) => {
+    api.reset = () => {
+      sdk.reset();
+      return win.alitycs;
+    };
+    api.page = (name?: string, properties?: Record<string, unknown>, options?: EventOptions) => {
       sdk.page(name, properties, options);
       return win.alitycs;
     };

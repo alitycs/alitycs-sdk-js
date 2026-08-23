@@ -2,8 +2,13 @@ const MAX_ENTRIES = 10_000;
 const CLEANUP_INTERVAL = 100;
 
 export class EventDeduplicator {
-  private entries = new Map<string, { expiresAt: number }>();
-  private callCount = 0;
+  private entries: Map<string, { expiresAt: number }>;
+  private callCount: number;
+
+  constructor() {
+    this.entries = new Map();
+    this.callCount = 0;
+  }
 
   isDuplicate(dedupeKey: string, windowMs: number): boolean {
     this.callCount++;

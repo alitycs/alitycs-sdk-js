@@ -1,101 +1,119 @@
-# Alitycs Analytics SDKs
+# Alitycs JavaScript SDKs
 
-**Multi-language analytics SDKs** for the Alitycs Analytics Platform. Production-ready event collection, processing, and ingestion with comprehensive privacy protection and enterprise-grade reliability.
+[![CI](https://github.com/alitycs/alitycs-sdk-js/actions/workflows/ci.yml/badge.svg)](https://github.com/alitycs/alitycs-sdk-js/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## 🌐 Available SDKs
+Official open-source JavaScript and TypeScript SDKs for sending product-analytics events to
+[Alitycs](https://alitycs.com). This repository is a Bun workspace containing the universal SDK,
+the browser SDK, and the lightweight browser loader.
 
-| Language | Status | Version | Documentation |
-|----------|--------|---------|---------------|
-| [TypeScript/JavaScript](./sdks/typescript) | ✅ **Stable** | 2.0.0 | [Docs](./sdks/typescript/README.md) |
-| [Python](./sdks/python) | 🚧 Coming Soon | - | [Plan](./docs/language-guides/python.md) |
-| [Java](./sdks/java) | 📋 Planned | - | [Plan](./docs/language-guides/java.md) |
-| [Go](./sdks/go) | 📋 Planned | - | [Plan](./docs/language-guides/go.md) |
+## Packages
 
-## 🚀 Quick Start
+| Package                                            | Runtime                           | What it provides                                                                                                    |
+| -------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| [`@alitycs/core`](sdks/core)                       | Node.js, Bun, Deno, edge runtimes | Tracking, identity, page and error events, trusted revenue events, batching, sessions, retry, and lifecycle control |
+| [`@alitycs/browser`](sdks/browser)                 | Browsers                          | Core capabilities plus optional DOM/page autocapture, lifecycle flushing, and a GA4 compatibility bridge            |
+| [`@alitycs/browser-snippet`](sdks/browser-snippet) | Browser script tag                | A small loader that queues calls and loads the browser SDK asynchronously                                           |
 
-### TypeScript/JavaScript
+All packages are currently version `1.0.0`. Versioned, installable package archives are attached to
+[GitHub Releases](https://github.com/alitycs/alitycs-sdk-js/releases). Public npm publication is
+prepared by the release process but is not advertised until the `@alitycs` npm packages exist.
 
-```bash
-cd sdks/typescript
-bun install
-bun test
-```
+## Quick start
 
-```typescript
-import { Analytics } from '@alitycs/sdk-typescript';
+### Server and universal runtimes
 
-await Analytics.initialize({
-  apiKey: 'your-api-key',
-  apiEndpoint: 'https://your-endpoint.com'
+```ts
+import { Alitycs } from "@alitycs/core";
+
+const analytics = Alitycs.init({
+  apiKey: process.env.ALITYCS_API_KEY!,
 });
 
-Analytics.track('user_signup', { plan: 'premium' });
-Analytics.identify('user-123', { name: 'John Doe' });
-Analytics.page('dashboard');
+analytics.identify("usr_123", { plan: "pro" });
+analytics.track("signup_completed", { source: "docs" });
+analytics.captureError("checkout_failed", { provider: "stripe" });
+
+await analytics.shutdown();
 ```
 
-## 📦 Repository Structure
+Revenue ingestion is server-only and requires a secret key with the `revenue:write` scope:
 
-```
-alitycs-agents/
-├── sdks/                       # Language-specific SDKs
-│   ├── typescript/            # ✅ TypeScript/JavaScript SDK
-│   ├── python/                # 🚧 Python SDK (coming soon)
-│   ├── java/                  # 📋 Java SDK (planned)
-│   └── go/                    # 📋 Go SDK (planned)
-│
-├── specs/                      # Shared API specifications
-│   ├── event-schema.json      # Event structure schema
-│   └── PROTOCOL.md            # Transport protocol docs
-│
-├── docs/                       # Shared documentation
-│   ├── API.md                 # API reference
-│   └── language-guides/       # Language-specific guides
-│
-├── examples/                   # Cross-language examples
-│   ├── typescript/
-│   ├── python/
-│   └── java/
-│
-└── tools/                      # Shared tooling
-    ├── scripts/               # Build & test scripts
-    └── ci/                    # CI/CD configs
+```ts
+analytics.trackRevenue({
+  version: 1,
+  kind: "transaction",
+  factId: "order_123",
+  amount: "19.99",
+  currency: "USD",
+});
 ```
 
-## ✨ Core Features (All SDKs)
+### Browser
 
-- **🔒 PII Protection** - Automatic sensitive data redaction
-- **🚚 Reliable Transport** - Circuit breaker with failover
-- **⚡ High Performance** - Intelligent batching & compression
-- **🎯 Auto-capture** - DOM events, page views, errors
-- **💾 Offline Support** - Local storage with sync
-- **🔄 Smart Retry** - Exponential backoff
-- **🛡️ GDPR Compliant** - Built-in consent management
+```ts
+import { init } from "@alitycs/browser";
 
-## 📚 Documentation
+const analytics = init({
+  apiKey: "pk_live_replace_me",
+  autoCapture: true,
+});
 
-- [Architecture Overview](./docs/architecture.md)
-- [API Reference](./docs/API.md)
-- [Getting Started](./docs/GETTING_STARTED.md)
-- [Shared Specifications](./specs/)
+analytics.track("cta_clicked", { placement: "hero" });
+```
 
-## 🤝 Contributing
+SDK batches are sent to `https://api.alitycs.com/events` by default with
+`Authorization: Bearer <apiKey>`. Browser integrations should use a publishable key. The SDK does
+not call the tenant-scoped analytics read API.
 
-Each SDK has its own contributing guidelines:
+## Supported surface
 
-- [TypeScript Contributing](./sdks/typescript/CONTRIBUTING.md)
-- [Python Contributing](./sdks/python/CONTRIBUTING.md) (coming soon)
+- `track`, `identify`, `reset`, `page`, and `captureError`
+- `setGlobalProperties`, `removeGlobalProperties`, and `clearGlobalProperties`
+- `flush` and `shutdown`
+- Trusted `trackRevenue` on server runtimes
+- Configurable batching, bounded queues, sessions, and retry
+- Browser autocapture and GA4 command translation
 
-## 📝 License
+The canonical payload contract is [event schema v0.4.0](specs/event-schema.json). See the
+[API reference](docs/API.md) and individual package READMEs for details.
 
-MIT License - see [LICENSE](./LICENSE) for details
+## Development
 
-## 🔗 Links
+Requirements: [Bun](https://bun.sh) `1.3.14`.
 
-- [Official Documentation](https://docs.alitycs.com)
-- [API Status](https://status.alitycs.com)
-- [Support](https://support.alitycs.com)
+```bash
+bun install --frozen-lockfile
+bun run typecheck:all
+bun run lint:all
+bun run format:check
+bun run test:all
+bun run build:all
+```
 
----
+Coverage is enforced per package at 90% lines and 85% functions. Pull requests run the same checks
+on GitHub Actions.
 
-**Choose your language above to get started** 🚀
+## Releases
+
+Pushing an annotated `vMAJOR.MINOR.PATCH` tag runs the release workflow. It verifies every package
+version matches the tag, runs the complete test and build suite, creates attested package tarballs
+with SHA-256 checksums, and publishes a GitHub Release. See [Releasing](docs/RELEASING.md).
+
+## Community and security
+
+- [Contributing](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security policy](SECURITY.md)
+- [Support](SUPPORT.md)
+- [Changelog](CHANGELOG.md)
+
+Security reports should use GitHub's private vulnerability reporting rather than a public issue.
+
+## Related repository
+
+- [Alitycs JVM SDK](https://github.com/alitycs/alitycs-sdk-jvm)
+
+## License
+
+[MIT](LICENSE) © 2026 Alitycs Team.

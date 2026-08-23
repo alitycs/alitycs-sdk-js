@@ -12,7 +12,10 @@
       "require": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "sideEffects": false,
   "scripts": {
     "build": "bun build src/index.ts --outfile=dist/index.esm.js --target=node --format=esm",
@@ -34,16 +37,24 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.3.5",
     "bun-types": "^1.3.10",
-    "eslint": "^10.0.3",
-    "globals": "^17.4.0",
-    "prettier": "^3.8.1",
-    "typescript-eslint": "^8.56.1",
+    "eslint": "^10.8.1",
+    "globals": "^17.11.0",
+    "prettier": "^3.9.6",
+    "typescript-eslint": "^8.67.0",
     "typescript": "^5.9.3"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/alitycs/alitycs-agents",
+    "url": "https://github.com/alitycs/alitycs-sdk-js.git",
     "directory": "sdks/core"
+  },
+  "homepage": "https://github.com/alitycs/alitycs-sdk-js/tree/main/sdks/core#readme",
+  "bugs": {
+    "url": "https://github.com/alitycs/alitycs-sdk-js/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "keywords": [
     "analytics",
@@ -56,7 +67,7 @@
   ],
   "license": "MIT",
   "engines": {
-    "node": ">=14.0.0",
+    "node": ">=18.0.0",
     "bun": ">=1.0.0"
   }
 }

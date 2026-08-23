@@ -5,10 +5,9 @@
     "declaration": true,
     "emitDeclarationOnly": true,
     "outDir": "./dist",
+    "rootDir": "./src",
     "allowImportingTsExtensions": false,
-    "paths": {
-      "@alitycs/core": ["../core/src/index.ts"]
-    }
+    "paths": {}
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "tests"]

@@ -1,0 +1,17 @@
+# Changelog
+
+This project follows [Semantic Versioning](https://semver.org/). User-visible changes are recorded
+here before a version tag is created.
+
+## [Unreleased]
+
+## [1.0.0] - 2026-08-23
+
+- Initial public source release of `@alitycs/core`, `@alitycs/browser`, and
+  `@alitycs/browser-snippet`.
+- Added the v0.4.0 event contract, retry-safe batching, session reset, global properties, error and
+  revenue events, browser lifecycle flushing, optional autocapture, and the GA4 bridge.
+- Enforced 90% line and 85% function coverage gates.
+
+[Unreleased]: https://github.com/alitycs/alitycs-sdk-js/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/alitycs/alitycs-sdk-js/releases/tag/v1.0.0

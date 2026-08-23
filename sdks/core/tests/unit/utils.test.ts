@@ -15,6 +15,24 @@ describe('generateId', () => {
     const id = generateId();
     expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
+
+  test('falls back to a locally generated UUID when crypto.randomUUID is unavailable', () => {
+    const cryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: {},
+    });
+
+    try {
+      expect(generateId()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    } finally {
+      if (cryptoDescriptor) {
+        Object.defineProperty(globalThis, 'crypto', cryptoDescriptor);
+      } else {
+        delete (globalThis as { crypto?: unknown }).crypto;
+      }
+    }
+  });
 });
 
 describe('serializeProperties', () => {

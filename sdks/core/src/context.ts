@@ -19,6 +19,8 @@ export function collectContext(): EventContext {
   if (utm.utmSource) ctx.utmSource = utm.utmSource;
   if (utm.utmMedium) ctx.utmMedium = utm.utmMedium;
   if (utm.utmCampaign) ctx.utmCampaign = utm.utmCampaign;
+  if (utm.utmContent) ctx.utmContent = utm.utmContent;
+  if (utm.utmTerm) ctx.utmTerm = utm.utmTerm;
 
   return ctx;
 }
@@ -73,7 +75,13 @@ function getScreen(): Record<string, string> | undefined {
   return undefined;
 }
 
-function getUtmParams(): { utmSource?: string; utmMedium?: string; utmCampaign?: string } {
+function getUtmParams(): {
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  utmContent?: string;
+  utmTerm?: string;
+} {
   if (typeof window === 'undefined' || !window.location?.search) return {};
   try {
     const params = new URLSearchParams(window.location.search);
@@ -81,6 +89,8 @@ function getUtmParams(): { utmSource?: string; utmMedium?: string; utmCampaign?:
       utmSource: params.get('utm_source') ?? undefined,
       utmMedium: params.get('utm_medium') ?? undefined,
       utmCampaign: params.get('utm_campaign') ?? undefined,
+      utmContent: params.get('utm_content') ?? undefined,
+      utmTerm: params.get('utm_term') ?? undefined,
     };
   } catch {
     return {};

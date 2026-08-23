@@ -8,14 +8,20 @@ export interface TransportConfig {
   logger: Logger;
 }
 
+export interface TransportSendOptions {
+  keepalive?: boolean;
+  maxRetries?: number;
+}
+
 export class HttpTransport {
   constructor(private config: TransportConfig) {}
 
-  async send(payload: BatchPayload): Promise<void> {
+  async send(payload: BatchPayload, options: TransportSendOptions = {}): Promise<void> {
     const body = JSON.stringify(payload);
     let lastError: Error | undefined;
+    const maxRetries = options.maxRetries ?? this.config.maxRetries;
 
-    for (let attempt = 0; attempt <= this.config.maxRetries; attempt++) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (attempt > 0) {
         const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10_000);
         await sleep(delay);
@@ -29,6 +35,7 @@ export class HttpTransport {
             Authorization: `Bearer ${this.config.apiKey}`,
           },
           body,
+          keepalive: options.keepalive ?? false,
         });
 
         if (response.ok) return;
@@ -47,7 +54,7 @@ export class HttpTransport {
         lastError = err instanceof Error ? err : new Error(String(err));
       }
 
-      if (attempt < this.config.maxRetries) {
+      if (attempt < maxRetries) {
         this.config.logger.warn(`Transport: attempt ${attempt + 1} failed, retrying...`);
       }
     }

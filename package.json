@@ -3,10 +3,13 @@
   "version": "1.0.0",
   "description": "JavaScript/TypeScript analytics SDKs for Alitycs Platform",
   "private": true,
+  "packageManager": "bun@1.3.14",
   "workspaces": [
     "sdks/*"
   ],
   "scripts": {
+    "audit": "bun audit --audit-level=high",
+    "check": "bun run typecheck:all && bun run lint:all && bun run format:check && bun run test:all && bun run build:all",
     "test:all": "bun run test:core && bun run test:browser && bun run test:snippet",
     "test:core": "cd sdks/core && bun test",
     "test:browser": "cd sdks/browser && bun test",
@@ -15,30 +18,61 @@
     "build:core": "cd sdks/core && bun run build:all",
     "build:browser": "cd sdks/browser && bun run build:all",
     "build:snippet": "cd sdks/browser-snippet && bun run build",
+    "typecheck:all": "bun run typecheck:core && bun run typecheck:browser && bun run typecheck:snippet",
+    "typecheck:core": "cd sdks/core && bun run type-check",
+    "typecheck:browser": "cd sdks/browser && bun run type-check",
+    "typecheck:snippet": "cd sdks/browser-snippet && bun run type-check",
     "lint:all": "bun run lint:core && bun run lint:browser && bun run lint:snippet",
     "lint:core": "cd sdks/core && bun run lint",
     "lint:browser": "cd sdks/browser && bun run lint",
-    "lint:snippet": "cd sdks/browser-snippet && bun run lint"
+    "lint:snippet": "cd sdks/browser-snippet && bun run lint",
+    "format:check": "bun run format:core && bun run format:browser && bun run format:snippet",
+    "format:core": "cd sdks/core && bun run format:check",
+    "format:browser": "cd sdks/browser && bun run format:check",
+    "format:snippet": "cd sdks/browser-snippet && bun run format:check"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/alitycs/alitycs-agents"
+    "url": "https://github.com/alitycs/alitycs-sdk-js.git"
+  },
+  "homepage": "https://github.com/alitycs/alitycs-sdk-js#readme",
+  "bugs": {
+    "url": "https://github.com/alitycs/alitycs-sdk-js/issues"
   },
   "author": "Alitycs Team",
   "license": "MIT",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "eslint": "^10.0.3",
-    "globals": "^17.4.0",
-    "prettier": "^3.8.1",
-    "typescript-eslint": "^8.56.1"
+    "eslint": "^10.8.1",
+    "globals": "^17.11.0",
+    "prettier": "^3.9.6",
+    "typescript-eslint": "^8.67.0"
+  },
+  "overrides": {
+    "flatted": "3.4.4",
+    "picomatch": "4.0.5"
   },
   "lint-staged": {
-    "sdks/core/src/**/*.ts": ["prettier --write", "eslint --fix"],
-    "sdks/core/tests/**/*.ts": ["prettier --write"],
-    "sdks/browser/src/**/*.ts": ["prettier --write", "eslint --fix"],
-    "sdks/browser/tests/**/*.ts": ["prettier --write"],
-    "sdks/browser-snippet/src/**/*.ts": ["prettier --write", "eslint --fix"],
-    "sdks/browser-snippet/tests/**/*.ts": ["prettier --write"]
+    "sdks/core/src/**/*.ts": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "sdks/core/tests/**/*.ts": [
+      "prettier --write"
+    ],
+    "sdks/browser/src/**/*.ts": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "sdks/browser/tests/**/*.ts": [
+      "prettier --write"
+    ],
+    "sdks/browser-snippet/src/**/*.ts": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "sdks/browser-snippet/tests/**/*.ts": [
+      "prettier --write"
+    ]
   }
 }

@@ -176,4 +176,30 @@ describe('HttpTransport', () => {
 
     restoreFetch();
   });
+
+  test('uses keepalive without moving the publishable key into the URL', async () => {
+    let capturedInit: RequestInit | undefined;
+    let capturedUrl = '';
+    globalThis.fetch = mock(async (url: URL | RequestInfo, init?: RequestInit) => {
+      capturedUrl = String(url);
+      capturedInit = init;
+      return new Response('OK', { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const transport = new HttpTransport({
+      endpoint: 'https://api.test.com/events',
+      apiKey: 'publishable-secret',
+      maxRetries: 3,
+      logger: createLogger(false),
+    });
+
+    await transport.send(makePayload(), { keepalive: true, maxRetries: 0 });
+
+    expect(capturedUrl).toBe('https://api.test.com/events');
+    expect(capturedUrl).not.toContain('publishable-secret');
+    expect(capturedInit?.keepalive).toBe(true);
+    expect((capturedInit?.headers as Record<string, string>).Authorization).toBe('Bearer publishable-secret');
+
+    restoreFetch();
+  });
 });

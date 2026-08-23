@@ -24,6 +24,7 @@ export class SessionManager {
       this.persist();
     } else {
       this.session.lastActivity = Date.now();
+      this.persist();
     }
   }
 
@@ -31,6 +32,11 @@ export class SessionManager {
     this.session.userId = userId;
     this.session.lastActivity = Date.now();
     this.persist();
+  }
+
+  reset(): SessionData {
+    this.session = this.create();
+    return this.session;
   }
 
   private isExpired(): boolean {

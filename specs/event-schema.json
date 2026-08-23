@@ -1,11 +1,54 @@
 {
   "title": "Alitycs Analytics Event Schema",
   "description": "Unified event structure for all Alitycs Analytics SDKs",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "definitions": {
+    "RevenuePayload": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["version", "kind", "factId", "amount", "currency"],
+          "properties": {
+            "version": { "const": 1 },
+            "kind": { "const": "transaction" },
+            "factId": { "type": "string" },
+            "amount": { "type": "string" },
+            "currency": { "type": "string" },
+            "customerId": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["version", "kind", "factId", "subscriptionId", "customerId", "mrrAmount", "currency"],
+          "properties": {
+            "version": { "const": 1 },
+            "kind": { "const": "mrr_snapshot" },
+            "factId": { "type": "string" },
+            "subscriptionId": { "type": "string" },
+            "customerId": { "type": "string" },
+            "mrrAmount": { "type": "string" },
+            "currency": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["version", "kind", "factId", "currency", "expectedActiveSubscriptions"],
+          "properties": {
+            "version": { "const": 1 },
+            "kind": { "const": "mrr_baseline_complete" },
+            "factId": { "type": "string" },
+            "currency": { "type": "string" },
+            "expectedActiveSubscriptions": { "type": "integer" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
     "AnalyticsEvent": {
       "type": "object",
-      "required": ["eventId", "event", "eventType", "timestamp", "properties", "context"],
+      "required": ["eventId", "event", "eventType", "anonymousId", "sessionId", "timestamp", "properties", "context"],
       "properties": {
         "eventId": {
           "type": "string",
@@ -17,7 +60,7 @@
         },
         "eventType": {
           "type": "string",
-          "enum": ["track", "identify", "page"],
+          "enum": ["track", "identify", "page", "error"],
           "description": "Category of the event"
         },
         "userId": {
@@ -42,6 +85,13 @@
             "type": "string"
           },
           "description": "Event-specific properties (all values as strings)"
+        },
+        "revenue": {
+          "$ref": "#/definitions/RevenuePayload"
+        },
+        "dedupeKey": {
+          "type": "string",
+          "description": "Optional client-side deduplication key"
         },
         "context": {
           "$ref": "#/definitions/EventContext"
@@ -101,8 +151,17 @@
         "utmCampaign": {
           "type": "string",
           "description": "UTM campaign parameter"
+        },
+        "utmContent": {
+          "type": "string",
+          "description": "UTM content parameter"
+        },
+        "utmTerm": {
+          "type": "string",
+          "description": "UTM term parameter"
         }
       },
+      "required": ["sdkVersion", "sdkLanguage"],
       "additionalProperties": true
     },
     "BatchPayload": {
