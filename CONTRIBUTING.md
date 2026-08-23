@@ -45,7 +45,8 @@ Never commit credentials, customer data, generated `dist/` output, or local envi
 
 Describe the user-visible effect, compatibility impact, and commands you ran. Maintainers may ask
 for a changeset in `CHANGELOG.md` when a change affects consumers. By contributing, you agree that
-your contribution is licensed under this repository's MIT License.
+your contribution is licensed under this repository's MIT License. Configure GitHub-verified commit
+signing before pushing; commits merged into `main` must carry verified signatures.
 
 CodeRabbit automatically reviews ready, human-authored pull requests and may request changes for
 correctness, security, compatibility, or test gaps. The required `CodeRabbit Gate` check verifies
