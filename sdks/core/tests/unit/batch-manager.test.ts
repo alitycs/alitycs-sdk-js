@@ -3,6 +3,8 @@ import { BatchManager } from '../../src/batch-manager';
 import type { AnalyticsEvent, ResolvedConfig, BatchPayload } from '../../src/types';
 import { createLogger } from '../../src/logger';
 
+let nextEventId = 0;
+
 function makeConfig(overrides: Partial<ResolvedConfig> = {}): ResolvedConfig {
   return {
     apiKey: 'test-key',
@@ -20,14 +22,14 @@ function makeConfig(overrides: Partial<ResolvedConfig> = {}): ResolvedConfig {
 
 function makeEvent(name = 'test_event'): AnalyticsEvent {
   return {
-    eventId: `evt_${Math.random()}`,
+    eventId: `evt_${nextEventId++}`,
     event: name,
     eventType: 'track',
     anonymousId: 'anon_123',
     sessionId: 'sess_123',
     timestamp: Date.now(),
     properties: {},
-    context: { sdkVersion: '1.0.0', sdkLanguage: 'typescript' },
+    context: { sdkVersion: '1.0.1', sdkLanguage: 'typescript' },
   };
 }
 

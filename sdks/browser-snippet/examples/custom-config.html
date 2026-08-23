@@ -239,7 +239,7 @@
     }
 
     function testIdentify() {
-      alitycs('identify', 'test_user_' + Math.floor(Math.random() * 1000), {
+      alitycs('identify', 'test_user_' + crypto.randomUUID(), {
         email: 'test@example.com',
         plan: 'enterprise',
         features: ['custom-endpoint', 'self-hosted']
