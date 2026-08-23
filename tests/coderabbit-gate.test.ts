@@ -1965,6 +1965,114 @@ runs:
     );
   });
 
+  test("requires literal immutable workflow container and service images", async () => {
+    const validContainer = `ghcr.io/alitycs/build@sha256:${"a".repeat(64)}`;
+    const validService = `postgres:16@sha256:${"b".repeat(64)}`;
+    const validRegistryPort = `registry.example.com:5000/alitycs/cache@sha256:${"c".repeat(64)}`;
+    const valid = await runPinVerifier(`
+images:
+  container: &container-image ${validContainer}
+  service: &service-image ${validService}
+container-definition: &container-definition
+  image: *container-image
+  options: --cpus 1
+service-definition: &service-definition { image: *service-image, ports: [5432] }
+jobs:
+  scalar-container:
+    container: *container-image
+    services:
+      database: *service-definition
+  mapping-container:
+    container: *container-definition
+    services: { cache: { image: ${validRegistryPort} } }
+`);
+    expect(valid.exitCode).toBe(0);
+    expect(valid.stdout).toContain("4 immutable third-party");
+
+    const invalidLiterals = await runPinVerifier(`
+images:
+  mutable: &mutable-image alpine:latest
+  uppercase: &uppercase-image ghcr.io/alitycs/build@sha256:${"A".repeat(64)}
+jobs:
+  invalid-container:
+    container: *mutable-image
+    services:
+      uppercase: { image: *uppercase-image }
+      expression: { image: "\${{ matrix.image }}" }
+      action-syntax:
+        image: docker://alpine@sha256:${"d".repeat(64)}
+`);
+    expect(invalidLiterals.exitCode).toBe(1);
+    for (const image of [
+      "alpine:latest",
+      "ghcr.io/alitycs/build@sha256:",
+      "${{ matrix.image }}",
+      "docker://alpine@sha256:",
+    ]) {
+      expect(invalidLiterals.stderr).toContain(`got "${image}`);
+    }
+
+    const validDuplicateImage = `ghcr.io/alitycs/build@sha256:${"e".repeat(64)}`;
+    const duplicateKeys = await runPinVerifier(`
+images:
+  valid: &valid-image ${validDuplicateImage}
+  mutable: &mutable-image alpine:latest
+jobs:
+  duplicate-container:
+    container: *valid-image
+    container: { image: *mutable-image }
+  duplicate-container-image:
+    container: { image: *valid-image, image: *mutable-image }
+  duplicate-services:
+    services: { valid: { image: *valid-image } }
+    services: { invalid: { image: *mutable-image } }
+  duplicate-service-image:
+    services: { database: { image: *valid-image, image: *mutable-image } }
+`);
+    expect(duplicateKeys.exitCode).toBe(1);
+    expect(duplicateKeys.stderr.match(/got "alpine:latest"/g)).toHaveLength(4);
+
+    const nonScalar = await runPinVerifier(`
+image-list: &image-list [ghcr.io/alitycs/build@sha256:${"f".repeat(64)}]
+jobs:
+  invalid-container-declaration:
+    container: [*image-list]
+  invalid-container-image:
+    container: { image: *image-list }
+  missing-container-image:
+    container: { options: --cpus 1 }
+  invalid-services-declaration:
+    services: [database]
+  invalid-service-declaration:
+    services: { database: *image-list }
+  invalid-service-image:
+    services: { database: { image: *image-list } }
+  missing-service-image:
+    services: { database: { ports: [5432] } }
+`);
+    expect(nonScalar.exitCode).toBe(1);
+    expect(
+      nonScalar.stderr.match(
+        /workflow container image must be a scalar literal/g,
+      ),
+    ).toHaveLength(3);
+    expect(
+      nonScalar.stderr.match(
+        /workflow service image must be a scalar literal/g,
+      ),
+    ).toHaveLength(4);
+
+    expect(await Bun.file("README.md").text()).toContain(
+      "CPython 3.11 through 3.14",
+    );
+    expect(await Bun.file(".coderabbit.yaml").text()).toContain(
+      "workflow job container and service images must use literal lowercase registry",
+    );
+    const docs = await Bun.file("docs/coderabbit.md").text();
+    expect(docs).toContain("scalar and mapping container forms");
+    expect(docs).toContain("64 lowercase hexadecimal digits");
+  });
+
   test("requires local Dockerfiles to be regular tracked files", async () => {
     const repository = await mkdtemp(
       join(tmpdir(), "alitycs-workflow-pin-fixture-"),

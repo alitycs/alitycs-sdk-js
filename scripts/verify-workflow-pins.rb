@@ -8,6 +8,16 @@ require "set"
 
 GIT_ACTION_REFERENCE = /\A[^@\s]+@[0-9a-f]{40}\z/
 DOCKER_ACTION_REFERENCE = /\Adocker:\/\/[^@\s]+@sha256:[0-9a-f]{64}\z/
+WORKFLOW_IMAGE_REFERENCE = %r{
+  \A
+  (?:
+    [a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]+)?/
+  )?
+  [a-z0-9]+(?:[._-]+[a-z0-9]+)*(?:/[a-z0-9]+(?:[._-]+[a-z0-9]+)*)*
+  (?::[a-z0-9_][a-z0-9_.-]{0,127})?
+  @sha256:[0-9a-f]{64}
+  \z
+}x
 SAME_COMMIT_REFERENCE = %r{\A(?:\./|\$/)[^@\s]+\z}
 WORKFLOW_PATH = %r{\A\.github/workflows/.+\.ya?ml\z}
 ACTION_METADATA_PATH = %r{(?:\A|/)action\.ya?ml\z}
@@ -173,10 +183,69 @@ def each_steps_uses(node, context, &block)
   end
 end
 
+def node_location(node)
+  "line #{node.start_line + 1}, column #{node.start_column + 1}"
+end
+
+def each_workflow_container_image(job, context)
+  mapping_values(job, "container", context).each do |container_key, container|
+    resolved_container = resolve_alias(container, context)
+    if resolved_container.is_a?(Psych::Nodes::Scalar)
+      yield resolved_container.value, node_location(container_key), :workflow_container_image
+      next
+    end
+
+    unless resolved_container.is_a?(Psych::Nodes::Mapping)
+      yield nil, node_location(container_key), :workflow_container_image
+      next
+    end
+
+    images = mapping_values(resolved_container, "image", context)
+    if images.empty?
+      yield nil, node_location(container_key), :workflow_container_image
+      next
+    end
+
+    images.each do |image_key, image|
+      yield scalar_value(image, context), node_location(image_key), :workflow_container_image
+    end
+  end
+end
+
+def each_workflow_service_image(job, context)
+  mapping_values(job, "services", context).each do |services_key, services|
+    resolved_services = resolve_alias(services, context)
+    unless resolved_services.is_a?(Psych::Nodes::Mapping)
+      yield nil, node_location(services_key), :workflow_service_image
+      next
+    end
+
+    mapping_entries(resolved_services, context).each do |service_key, service|
+      resolved_service = resolve_alias(service, context)
+      unless resolved_service.is_a?(Psych::Nodes::Mapping)
+        yield nil, node_location(service_key), :workflow_service_image
+        next
+      end
+
+      images = mapping_values(resolved_service, "image", context)
+      if images.empty?
+        yield nil, node_location(service_key), :workflow_service_image
+        next
+      end
+
+      images.each do |image_key, image|
+        yield scalar_value(image, context), node_location(image_key), :workflow_service_image
+      end
+    end
+  end
+end
+
 def each_workflow_uses(root, context, &block)
   mapping_values(root, "jobs", context).each do |_jobs_key, jobs|
     mapping_entries(jobs, context).each do |_job_name, job|
       each_mapping_reference(job, "uses", context, :workflow, &block)
+      each_workflow_container_image(job, context, &block)
+      each_workflow_service_image(job, context, &block)
       mapping_values(job, "steps", context).each do |_steps_key, steps|
         each_steps_uses(steps, context, &block)
       end
@@ -243,7 +312,19 @@ begin
     begin
       stream = Psych.parse_stream(content, filename: path)
       each_action_uses(stream, path) do |reference, location, reference_kind|
-        if reference_kind == :docker_image
+        if %i[workflow_container_image workflow_service_image].include?(reference_kind)
+          image_type = reference_kind == :workflow_container_image ? "container" : "service"
+          if reference.nil?
+            errors <<
+              "#{path}: #{location} workflow #{image_type} image must be a scalar literal"
+          elsif reference.match?(WORKFLOW_IMAGE_REFERENCE)
+            pinned_count += 1
+          else
+            errors <<
+              "#{path}: #{location} workflow #{image_type} image must be a literal lowercase " \
+                "SHA-256 digest-pinned registry reference, got #{reference.inspect}"
+          end
+        elsif reference_kind == :docker_image
           if reference.nil?
             errors << "#{path}: #{location} image must be a scalar string"
           elsif reference.start_with?("docker://")

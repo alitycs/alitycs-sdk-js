@@ -11,6 +11,13 @@ creates an isolated environment with CPython 3.11 through 3.14, and never uses a
 from `PATH`. CI pins CPython 3.14.7; local environments with another default interpreter can set
 `PYTHON_BIN` to a supported CPython executable.
 
+`scripts/verify-workflow-pins.rb` parses workflow and action YAML structurally. GitHub Actions and
+reusable workflows require full commit SHAs, Docker action images retain their `docker://` digest
+or tracked local `Dockerfile` rules, and every workflow job container or service image must be a
+literal lowercase registry reference ending in `@sha256:` plus 64 lowercase hexadecimal digits.
+The workflow-image check covers scalar and mapping container forms, aliases, flow collections,
+duplicate keys, and non-scalar values.
+
 `.github/workflows/coderabbit-schema-drift.yml` compares that snapshot with CodeRabbit's live
 schema every week and on manual dispatch. It never runs for pull requests or pushes and is
 deliberately not a required merge check: a failure is a maintenance alert to review and update the
@@ -128,11 +135,14 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
    Action or reusable-workflow `uses:` reference to a full lowercase 40-character commit SHA and
    every `docker://` image, including Docker action metadata `runs.image`, to a full lowercase
    SHA-256 digest. A local `runs.image` path must resolve to a tracked file named `Dockerfile` at
-   the audited commit. Pin GitHub-hosted jobs to an explicit supported runner label such as
-   `ubuntu-24.04`; do not use a moving `*-latest` label. Run
+   the audited commit. Express every workflow job container or service image as a literal
+   lowercase registry reference pinned to a full `sha256` digest; expressions and mutable tags are
+   invalid. Pin GitHub-hosted jobs to an explicit supported runner label such as `ubuntu-24.04`;
+   do not use a moving `*-latest` label. Run
    `./scripts/verify-workflow-pins.rb`, `./scripts/validate-coderabbit.sh`, and the repository policy
    tests before merging the baseline. The structural verifier covers YAML quoting, flow mappings,
-   aliases, duplicate keys, tracked local composite-action metadata, and Docker action images.
+   aliases, duplicate keys, tracked local composite-action metadata, Docker action images, and
+   workflow job container and service images, including scalar and mapping container forms.
    Same-commit actions and reusable workflows may use GitHub's `$/` syntax or the compatible `./`
    syntax; both are resolved only to tracked files at the audited commit.
    Copy the pinned schema snapshot, hash-locked validator requirements, and validation script as a
