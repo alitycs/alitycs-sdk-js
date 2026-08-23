@@ -1287,6 +1287,7 @@ describe("trusted CodeRabbit workflow", () => {
 
   test("audits the synchronized commit and exact app allowlists", async () => {
     const audit = await Bun.file("scripts/audit-coderabbit-github.sh").text();
+    const docs = await Bun.file("docs/coderabbit.md").text();
 
     expect(audit).toContain(
       'git show "${local_head}:scripts/verify-workflow-pins.rb"',
@@ -1318,6 +1319,16 @@ describe("trusted CodeRabbit workflow", () => {
     expect(audit).toContain("(.events | sort) == ([");
     expect(audit).toContain("first(.[] | .installations[] | select(");
     expect(audit).not.toContain("head -n 1");
+    expect(audit).toContain(
+      '"user/installations/$installation_id/repositories?per_page=100"',
+    );
+    expect(audit).toContain("must select every active public SDK");
+    expect(audit).toContain('--argjson require_gate "$require_gate"');
+    expect(audit).toContain('if [[ "${1:-}" == "--pre-restore" ]]');
+    expect(docs).toContain(
+      "./scripts/audit-coderabbit-github.sh --pre-restore",
+    );
+    expect(docs).toContain("run the same audit again without");
     expect(audit).toContain('fail "could not read the gate App ID"');
     for (const variable of [
       "$gate_client_id_variable",

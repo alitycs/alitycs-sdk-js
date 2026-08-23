@@ -65,10 +65,17 @@ verify_action_pins() {
 		fail "the audited commit contains mutable or invalid workflow action references"
 }
 
-for command_name in gh git head jq ruby sort; do
+for command_name in gh git jq ruby sort; do
 	command -v "$command_name" >/dev/null 2>&1 ||
 		fail "required command is unavailable: $command_name"
 done
+
+require_gate=true
+if [[ "${1:-}" == "--pre-restore" ]]; then
+	require_gate=false
+	shift
+fi
+[[ "$#" -le 1 ]] || fail "usage: $0 [--pre-restore] [owner/repository]"
 
 repository="${1:-}"
 if [[ -z "$repository" ]]; then
@@ -105,6 +112,51 @@ jq -e '
 	(.events // []) == []
 ' <<<"$installation" >/dev/null ||
 	fail "$gate_app_slug must use selected repositories with only the documented permissions"
+
+installation_id="$(jq -r '.id // empty' <<<"$installation")"
+[[ "$installation_id" =~ ^[1-9][0-9]*$ ]] || fail "could not read the gate App installation ID"
+gate_repository_pages="$(
+	gh api --paginate --slurp \
+		"user/installations/$installation_id/repositories?per_page=100" ||
+		fail "could not enumerate the Gate App repositories; gh auth needs read:user and org-owner access"
+)"
+organization_repository_pages="$(
+	gh api --paginate --slurp "orgs/$owner/repos?type=public&per_page=100"
+)"
+jq -e --slurp --arg owner "$owner" --arg repository "$repository" '
+	.[0] as $gate_pages |
+	.[1] as $organization_pages |
+	[$gate_pages[] | .repositories[]] as $selected |
+	[$organization_pages[] | .[] |
+		select(
+			.owner.login == $owner and
+			(.name | test("^alitycs-sdk-[a-z0-9][a-z0-9._-]*$")) and
+			.private == false and
+			(.visibility // "public") == "public" and
+			.archived == false and
+			.disabled == false and
+			.fork == false and
+			.default_branch == "main"
+		)
+	] as $expected |
+	($selected | length) > 0 and
+	all($selected[];
+		.owner.login == $owner and
+		(.name | test("^alitycs-sdk-[a-z0-9][a-z0-9._-]*$")) and
+		.private == false and
+		(.visibility // "public") == "public" and
+		.archived == false and
+		.disabled == false and
+		.fork == false and
+		.default_branch == "main"
+	) and
+	([$selected[] | select(.full_name == $repository)] | length == 1) and
+	(($selected | map(.full_name) | sort) == ($expected | map(.full_name) | sort))
+' < <(
+	printf '%s\n' "$gate_repository_pages"
+	printf '%s\n' "$organization_repository_pages"
+) >/dev/null ||
+	fail "$gate_app_slug must select every active public SDK and no other repository, including $repository"
 
 coderabbit_installation="$(
 	jq -c \
@@ -287,11 +339,23 @@ jq -e \
 	fail "the recorded Gate App canary is missing, stale, duplicated, or unsuccessful"
 
 protection="$(gh api "repos/$repository/branches/main/protection")"
-jq -e --arg gate_name "$gate_check_name" --argjson gate_app_id "$gate_app_id" --argjson actions_app_id "$github_actions_app_id" '
+jq -e \
+	--arg gate_name "$gate_check_name" \
+	--argjson actions_app_id "$github_actions_app_id" \
+	--argjson gate_app_id "$gate_app_id" \
+	--argjson require_gate "$require_gate" '
 	.required_status_checks.strict == true and
-	(.required_status_checks.checks | length == 3) and
-	([.required_status_checks.checks[] |
-		select(.context == $gate_name and .app_id == $gate_app_id)] | length == 1) and
+	(
+		if $require_gate then
+			(.required_status_checks.checks | length == 3) and
+			([.required_status_checks.checks[] |
+				select(.context == $gate_name and .app_id == $gate_app_id)] | length == 1)
+		else
+			(.required_status_checks.checks | length == 2) and
+			([.required_status_checks.checks[] |
+				select(.context == $gate_name)] | length == 0)
+		end
+	) and
 	([.required_status_checks.checks[] |
 		select(.context == "Verify" and .app_id == $actions_app_id)] | length == 1) and
 	([.required_status_checks.checks[] |
@@ -318,4 +382,8 @@ current_remote_head="$(gh api "repos/$repository/git/ref/heads/main" --jq .objec
 [[ "$current_remote_head" == "$remote_head" ]] ||
 	fail "remote main changed during the audit; rerun against the new head"
 
-echo "CodeRabbit GitHub controls verified for $repository (gate App ID $gate_app_id)."
+if [[ "$require_gate" == "true" ]]; then
+	echo "CodeRabbit GitHub controls verified for $repository (gate App ID $gate_app_id)."
+else
+	echo "CodeRabbit pre-restore controls verified for $repository (gate App ID $gate_app_id)."
+fi

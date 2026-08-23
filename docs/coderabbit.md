@@ -160,8 +160,10 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
    `ALITYCS_CODERABBIT_GATE_CANARY_SHA` in every affected SDK. Audit timestamps are read in UTC so
    the comparison is independent of the GitHub CLI client's local timezone, and the canary must
    complete strictly after every relevant update to fail closed on same-second ambiguity. The audit
-   requires Bash, Git, GitHub CLI, jq, and Ruby 3.3 or newer with its standard-library Psych
-   parser. CI pins Ruby 3.3.12 for deterministic workflow parsing.
+   directly compares the Gate App selection with every active public SDK in the organization. It
+   requires Bash, Git, GitHub CLI authenticated as an organization owner with the `read:user`
+   scope, jq, and Ruby 3.3 or newer with its standard-library Psych parser. CI pins Ruby 3.3.12 for
+   deterministic workflow parsing.
 
 ## Upgrade the gate
 
@@ -170,9 +172,13 @@ workflow tree is protected. Open and fully review changes to `.coderabbit.yaml` 
 Run `./scripts/verify-workflow-pins.rb` for every workflow change, run
 `./scripts/validate-coderabbit.sh` for every policy change and run the repository policy tests
 before temporarily removing only the dedicated gate check from branch protection. Merge after
-every other required check passes. From a clean checkout of the new `main`, rerun the pinned-schema
-validator before opening a canary against the new trusted policy and workflow pair. Restore the
-app-bound required check only after the canary succeeds. Never disable the surrounding CI,
+every other required check passes. From a clean checkout of the new `main`, rerun the workflow-pin
+verifier, pinned-schema validator, and policy tests before opening a canary against the new trusted
+policy and workflow pair. After the canary succeeds, refresh
+`ALITYCS_CODERABBIT_GATE_CANARY_SHA` and run
+`./scripts/audit-coderabbit-github.sh --pre-restore alitycs/alitycs-sdk-<name>`. Restore the
+app-bound required check only after that audit passes, then run the same audit again without
+`--pre-restore` to verify the final three-check protection. Never disable the surrounding CI,
 signature, history, conversation, force-push, or deletion protections.
 
 For app-key rotation, add a new GitHub App private key, update the environment secret in every SDK,
