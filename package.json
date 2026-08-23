@@ -10,7 +10,8 @@
   "scripts": {
     "audit": "bun audit --audit-level=high",
     "check": "bun run typecheck:all && bun run lint:all && bun run format:check && bun run test:all && bun run build:all",
-    "test:all": "bun run test:core && bun run test:browser && bun run test:snippet",
+    "test:all": "bun run test:gate && bun run test:core && bun run test:browser && bun run test:snippet",
+    "test:gate": "bun test tests/coderabbit-gate.test.ts",
     "test:core": "cd sdks/core && bun test",
     "test:browser": "cd sdks/browser && bun run test",
     "test:snippet": "cd sdks/browser-snippet && bun run test",

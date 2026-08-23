@@ -13,7 +13,7 @@ wire compatibility, runtime safety, and small browser footprint.
 
 ## Local setup
 
-Install Bun `1.3.14`, then run:
+Install Bun `1.3.14` and Python 3, then run:
 
 ```bash
 bun install --frozen-lockfile
@@ -22,6 +22,7 @@ bun run lint:all
 bun run format:check
 bun run test:all
 bun run build:all
+./scripts/validate-coderabbit.sh
 ```
 
 The coverage gate is 90% lines and 85% functions for every package. Tests must remain deterministic
@@ -49,10 +50,12 @@ your contribution is licensed under this repository's MIT License. Configure Git
 signing before pushing; commits merged into `main` must carry verified signatures.
 
 CodeRabbit automatically reviews ready, human-authored pull requests and may request changes for
-correctness, security, compatibility, or test gaps. The required `CodeRabbit Gate` check verifies
-that its approval covers the latest pushed commit; pushing another commit triggers an incremental
-review.
+correctness, security, compatibility, or test gaps. The required `Alitycs CodeRabbit Gate` check
+verifies that its approval covers the latest pushed commit; pushing another commit triggers an
+incremental review. The complete standalone policy and trusted evaluator live in this repository;
+see [CodeRabbit review gate](docs/coderabbit.md) for operation and upgrade procedures.
 Dependabot, Renovate, and GitHub Actions bot pull requests are intentionally skipped and instead
-require the normal CI checks plus one human approval. Administrators should use any protection
-override only as an incident break-glass measure and restore and verify the branch policy
-immediately afterward.
+require the normal CI checks plus one current-head human maintainer approval. If an approval lands
+after the evaluator times out, comment `/coderabbit-gate` to reconcile it. Administrators should
+use the documented protection override only as an incident break-glass measure and restore and
+verify the branch policy immediately afterward.

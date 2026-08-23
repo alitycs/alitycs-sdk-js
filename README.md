@@ -103,6 +103,7 @@ with SHA-256 checksums, and publishes a GitHub Release. See [Releasing](docs/REL
 ## Community and security
 
 - [Contributing](CONTRIBUTING.md)
+- [CodeRabbit review gate](docs/coderabbit.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Security policy](SECURITY.md)
 - [Support](SUPPORT.md)

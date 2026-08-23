@@ -1,102 +1,265 @@
 name: CodeRabbit gate
 
 on:
-  pull_request:
+  pull_request_target:
     branches: [main]
     types: [opened, reopened, synchronize, ready_for_review]
-  pull_request_review:
-    types: [submitted, dismissed]
+  check_run:
+    types: [completed, rerequested]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Pull request number to reconcile
+        required: true
+        type: number
 
+# This workflow intentionally runs only from the trusted default branch and never checks out or
+# executes pull-request code. Its private key is stored in a main-only GitHub environment.
 permissions:
   contents: read
-  pull-requests: read
 
 concurrency:
-  group: coderabbit-gate-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: >-
+    coderabbit-gate-${{ github.event.pull_request.number || github.event.issue.number ||
+    github.event.check_run.pull_requests[0].number || inputs.pull_request || github.run_id }}
+  cancel-in-progress: false
 
 jobs:
-  gate:
-    name: CodeRabbit Gate
-    if: github.event.pull_request.draft == false
+  reconcile:
+    name: Reconcile CodeRabbit approval
+    if: >-
+      (github.event_name == 'pull_request_target' && github.event.pull_request.draft == false) ||
+      (github.event_name == 'check_run' && github.event.check_run.app.slug == 'coderabbitai') ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+      github.event.comment.body == '/coderabbit-gate') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    environment: coderabbit-gate
+    timeout-minutes: 15
     steps:
-      - name: Verify the current-head approval
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      - name: Mint the dedicated gate token
+        id: gate-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
+          client-id: ${{ vars.ALITYCS_CODERABBIT_GATE_CLIENT_ID }}
+          private-key: ${{ secrets.ALITYCS_CODERABBIT_GATE_PRIVATE_KEY }}
+          permission-checks: write
+          permission-contents: read
+          permission-pull-requests: read
+
+      - name: Publish the current-head gate
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          GATE_APP_SLUG: ${{ steps.gate-token.outputs.app-slug }}
+        with:
+          github-token: ${{ steps.gate-token.outputs.token }}
           script: |
+            const gateName = "Alitycs CodeRabbit Gate";
+            const gatePath = ".github/workflows/coderabbit-gate.yml";
+            const gateAppSlug = process.env.GATE_APP_SLUG;
             const ignoredBots = new Set([
               "dependabot[bot]",
               "renovate[bot]",
               "github-actions[bot]",
             ]);
-            const pullRequest = context.payload.pull_request;
-            const headSha = pullRequest.head.sha;
-            const author = pullRequest.user.login;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
 
-            const hasCurrentApproval = async () => {
-              const reviews = await github.paginate(github.rest.pulls.listReviews, {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: pullRequest.number,
-                per_page: 100,
-              });
-              const latestByReviewer = new Map();
-              for (const review of reviews
-                .filter(
-                  (review) =>
-                    review.commit_id === headSha &&
-                    review.user &&
-                    ["APPROVED", "CHANGES_REQUESTED", "DISMISSED"].includes(review.state),
-                )
-                .sort((left, right) =>
-                  String(left.submitted_at).localeCompare(String(right.submitted_at)),
-                )) {
-                latestByReviewer.set(review.user.login, review);
-              }
-
-              if (ignoredBots.has(author)) {
-                for (const review of latestByReviewer.values()) {
-                  if (review.state !== "APPROVED" || review.user.login.endsWith("[bot]")) {
-                    continue;
-                  }
-                  try {
-                    const permission = await github.rest.repos.getCollaboratorPermissionLevel({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      username: review.user.login,
-                    });
-                    if (["admin", "maintain", "write"].includes(permission.data.permission)) {
-                      return true;
-                    }
-                  } catch (error) {
-                    if (error.status !== 404) throw error;
-                  }
-                }
-                return false;
-              }
-
-              return latestByReviewer.get("coderabbitai[bot]")?.state === "APPROVED";
-            };
-
-            for (let attempt = 1; attempt <= 45; attempt += 1) {
-              if (await hasCurrentApproval()) {
-                core.info(
-                  ignoredBots.has(author)
-                    ? "Current-head human approval found for ignored bot pull request."
-                    : "Current-head CodeRabbit approval found.",
-                );
-                return;
-              }
-              if (attempt < 45) {
-                core.info(`Approval is not current yet (attempt ${attempt}/45); retrying.`);
-                await new Promise((resolve) => setTimeout(resolve, 20_000));
-              }
+            if (!gateAppSlug) {
+              core.setFailed("The dedicated gate app slug is unavailable.");
+              return;
             }
 
-            core.setFailed(
-              ignoredBots.has(author)
-                ? "Ignored bot pull requests require a current-head human approval."
-                : "Human-authored pull requests require a current-head CodeRabbit approval.",
-            );
+            const loadPullRequest = async () => {
+              if (context.eventName === "pull_request_target") {
+                return context.payload.pull_request;
+              }
+              if (context.eventName === "check_run") {
+                const associated = await github.paginate(
+                  github.rest.repos.listPullRequestsAssociatedWithCommit,
+                  {
+                    owner,
+                    repo,
+                    commit_sha: context.payload.check_run.head_sha,
+                    per_page: 100,
+                  },
+                );
+                return associated.find(
+                  (pullRequest) =>
+                    pullRequest.state === "open" && pullRequest.base.ref === "main",
+                );
+              }
+
+              const pullNumber = Number(
+                context.eventName === "issue_comment"
+                  ? context.payload.issue.number
+                  : context.payload.inputs?.pull_request,
+              );
+              if (!Number.isSafeInteger(pullNumber) || pullNumber <= 0) {
+                return undefined;
+              }
+              if (context.eventName === "issue_comment") {
+                try {
+                  const permission = await github.rest.repos.getCollaboratorPermissionLevel({
+                    owner,
+                    repo,
+                    username: context.actor,
+                  });
+                  if (!["admin", "maintain", "write"].includes(permission.data.permission)) {
+                    core.notice("Ignoring a gate command from an actor without write access.");
+                    return undefined;
+                  }
+                } catch (error) {
+                  if (error.status !== 404) throw error;
+                  core.notice("Ignoring a gate command from a non-collaborator.");
+                  return undefined;
+                }
+              }
+              return (await github.rest.pulls.get({ owner, repo, pull_number: pullNumber })).data;
+            };
+
+            const pullRequest = await loadPullRequest();
+            if (
+              !pullRequest ||
+              pullRequest.state !== "open" ||
+              pullRequest.draft ||
+              pullRequest.base.ref !== "main"
+            ) {
+              core.notice("No open, ready pull request targeting main needs reconciliation.");
+              return;
+            }
+
+            const pullNumber = pullRequest.number;
+            const headSha = pullRequest.head.sha;
+            const author = pullRequest.user.login;
+            let checkRunId;
+
+            const finish = async (conclusion, title, summary) => {
+              if (!checkRunId) return;
+              await github.rest.checks.update({
+                owner,
+                repo,
+                check_run_id: checkRunId,
+                status: "completed",
+                conclusion,
+                completed_at: new Date().toISOString(),
+                output: { title, summary },
+              });
+            };
+
+            try {
+              const created = await github.rest.checks.create({
+                owner,
+                repo,
+                name: gateName,
+                head_sha: headSha,
+                status: "in_progress",
+                started_at: new Date().toISOString(),
+                details_url: `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`,
+                external_id:
+                  `alitycs-coderabbit-gate/v1:${pullNumber}:${headSha}:` +
+                  `${context.runId}:${context.runAttempt}`,
+                output: {
+                  title: "Waiting for current-head approval",
+                  summary: ignoredBots.has(author)
+                    ? "This ignored bot pull request needs a current-head approval from a human maintainer."
+                    : "This human-authored pull request needs a current-head CodeRabbit approval.",
+                },
+              });
+              checkRunId = created.data.id;
+
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                owner,
+                repo,
+                pull_number: pullNumber,
+                per_page: 100,
+              });
+              if (
+                files.some(
+                  (file) => file.filename === gatePath || file.previous_filename === gatePath,
+                )
+              ) {
+                const message =
+                  "The trusted gate workflow cannot be changed by an ordinary pull request. " +
+                  "Use the documented two-phase gate upgrade procedure.";
+                await finish("failure", "Protected gate workflow changed", message);
+                core.setFailed(message);
+                return;
+              }
+
+              const hasCurrentApproval = async () => {
+                const reviews = await github.paginate(github.rest.pulls.listReviews, {
+                  owner,
+                  repo,
+                  pull_number: pullNumber,
+                  per_page: 100,
+                });
+                const latestByReviewer = new Map();
+                for (const review of reviews
+                  .filter(
+                    (review) =>
+                      review.commit_id === headSha &&
+                      review.user &&
+                      ["APPROVED", "CHANGES_REQUESTED", "DISMISSED"].includes(review.state),
+                  )
+                  .sort((left, right) => {
+                    const byTime = String(left.submitted_at).localeCompare(
+                      String(right.submitted_at),
+                    );
+                    return byTime === 0 ? Number(left.id) - Number(right.id) : byTime;
+                  })) {
+                  latestByReviewer.set(review.user.login, review);
+                }
+
+                if (ignoredBots.has(author)) {
+                  for (const review of latestByReviewer.values()) {
+                    if (review.state !== "APPROVED" || review.user.login.endsWith("[bot]")) {
+                      continue;
+                    }
+                    try {
+                      const permission = await github.rest.repos.getCollaboratorPermissionLevel({
+                        owner,
+                        repo,
+                        username: review.user.login,
+                      });
+                      if (["admin", "maintain", "write"].includes(permission.data.permission)) {
+                        return true;
+                      }
+                    } catch (error) {
+                      if (error.status !== 404) throw error;
+                    }
+                  }
+                  return false;
+                }
+
+                return latestByReviewer.get("coderabbitai[bot]")?.state === "APPROVED";
+              };
+
+              for (let attempt = 1; attempt <= 30; attempt += 1) {
+                if (await hasCurrentApproval()) {
+                  const summary = ignoredBots.has(author)
+                    ? "A human maintainer approved this ignored bot pull request at the current head."
+                    : "CodeRabbit approved this human-authored pull request at the current head.";
+                  await finish("success", "Current-head approval verified", summary);
+                  return;
+                }
+                if (attempt < 30) {
+                  core.info(`Approval is not current yet (attempt ${attempt}/30); retrying.`);
+                  await new Promise((resolve) => setTimeout(resolve, 20_000));
+                }
+              }
+
+              const message = ignoredBots.has(author)
+                ? "Ignored bot pull requests require a current-head human maintainer approval."
+                : "Human-authored pull requests require a current-head CodeRabbit approval.";
+              await finish("failure", "Current-head approval missing", message);
+              core.setFailed(message);
+            } catch (error) {
+              await finish(
+                "failure",
+                "Gate evaluator failed closed",
+                "The trusted evaluator could not verify approval. Inspect the workflow logs.",
+              );
+              core.setFailed("The trusted CodeRabbit gate failed closed.");
+            }

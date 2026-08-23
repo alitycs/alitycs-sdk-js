@@ -1,13 +1,44 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-inheritance: true
+language: en-US
+tone_instructions: >-
+  Be concise, specific, and constructive. Prioritize defects that can affect correctness,
+  security, compatibility, operability, or maintainability. Avoid stylistic comments already
+  enforced by repository tooling and do not repeat the same finding.
+early_access: false
+enable_free_tier: true
 
 reviews:
-  path_filters:
-    - "!node_modules/**"
-    - "!**/dist/**"
-    - "!**/coverage/**"
-    - "!**/*.min.js"
+  profile: chill
+  request_changes_workflow: true
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  high_level_summary_instructions: >-
+    Summarize behavioral impact, compatibility risk, security implications, and validation.
+  poem: false
+  in_progress_fortune: false
+  review_status: true
+  review_progress: true
+  fail_commit_status: true
+  changed_files_summary: true
+  collapse_walkthrough: false
+  sequence_diagrams: false
+  suggested_labels: false
+  suggested_reviewers: false
+  auto_apply_labels: false
+  auto_assign_reviewers: false
+  assess_linked_issues: false
+  related_issues: false
+  related_prs: false
+  enable_prompt_for_ai_agents: false
+
   path_instructions:
+    - path: "**/*"
+      instructions: >-
+        Review for correctness, security, backward compatibility, and sufficient focused tests.
+        Flag undocumented user-visible behavior and dependency or workflow changes that weaken
+        reproducibility, least privilege, or supply-chain safety. GitHub Actions must be pinned to
+        immutable commit SHAs. Treat formatting-only preferences as non-blocking when automation
+        already enforces them.
     - path: "sdks/core/src/**"
       instructions: >-
         Preserve the public TypeScript API and the POST /events wire contract. The SDK accepts
@@ -39,8 +70,86 @@ reviews:
     - path: "**/package.json"
       instructions: >-
         Check dependency necessity, exact public entry points, side-effects and tree-shaking
-        behavior, supported runtimes, bundle impact, and release-script safety.
+        behavior, supported runtimes, bundle impact, and release-script safety. Treat lockfile
+        changes as supply-chain-sensitive and ensure they match the manifest change.
+    - path: ".coderabbit.yaml"
+      instructions: >-
+        Block changes that disable automatic review, request-changes behavior, exact-head gating,
+        or the ignored-bot policy. Require live-schema validation for every configuration change.
+    - path: ".github/workflows/coderabbit-gate.yml"
+      instructions: >-
+        This is a protected trust boundary. It must run from pull_request_target without checking
+        out or executing pull-request code, use only the main-restricted coderabbit-gate
+        environment, and publish through the dedicated Alitycs Gate app. Ordinary pull requests
+        must not alter this file.
     - path: ".github/workflows/**"
       instructions: >-
         Keep permissions least-privileged, actions pinned to full immutable commit SHAs, CI
         deterministic, and releases gated on the complete verification and package-integrity suite.
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 0
+    drafts: false
+    ignore_usernames:
+      - "dependabot[bot]"
+      - "renovate[bot]"
+      - "github-actions[bot]"
+
+  pre_merge_checks:
+    override_requested_reviewers_only: true
+    docstrings:
+      mode: off
+    title:
+      mode: warning
+      requirements: Use a concise, imperative title that describes the behavior changed.
+    description:
+      mode: warning
+    issue_assessment:
+      mode: warning
+
+  tools:
+    github-checks:
+      enabled: true
+
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+    simplify:
+      enabled: false
+    autofix:
+      enabled: false
+    fix_ci:
+      enabled: false
+    resolve_merge_conflict:
+      enabled: false
+    custom: []
+
+  post_merge_actions: []
+
+chat:
+  allow_non_org_members: false
+  art: false
+  auto_reply: true
+
+knowledge_base:
+  opt_out: true
+  web_search:
+    enabled: false
+  automatic_repository_linking: false
+  linked_repositories: []
+
+issue_enrichment:
+  auto_enrich:
+    enabled: false
+  planning:
+    enabled: false
+    auto_planning:
+      enabled: false
+      labels: []
+  labeling:
+    labeling_instructions: []
+    auto_apply_labels: false

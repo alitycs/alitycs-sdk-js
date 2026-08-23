@@ -17,6 +17,8 @@ Describe the user-visible change and why it is needed.
 - [ ] `bun run test:all`
 - [ ] `bun run build:all`
 - [ ] CodeRabbit reviewed the latest pushed commit (human-authored pull requests).
+- [ ] `Alitycs CodeRabbit Gate` passed for the latest pushed commit.
 
 CodeRabbit automatically re-reviews new commits. Dependabot, Renovate, and GitHub Actions bot pull
-requests are intentionally excluded and require one human approval plus the normal CI checks.
+requests are intentionally excluded and require one current-head human maintainer approval plus the
+normal CI checks. See [`docs/coderabbit.md`](../docs/coderabbit.md) for gate operations.
