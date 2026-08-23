@@ -67,99 +67,105 @@ def sources_for(options)
   end
 end
 
-def register_anchor(node, anchors)
-  return unless node.respond_to?(:anchor)
-  return if node.is_a?(Psych::Nodes::Alias) || node.anchor.nil?
-
-  anchors[node.anchor] = node
+def document_context(document)
+  anchors = {}
+  positions = {}
+  next_position = 0
+  visit = nil
+  visit = lambda do |node|
+    # Psych retains source order in children for block and flow collections. Indexing the parsed
+    # document therefore distinguishes same-line definitions without allowing another document's
+    # anchors to leak into this one.
+    positions[node.object_id] = next_position
+    next_position += 1
+    if node.respond_to?(:anchor) && !node.is_a?(Psych::Nodes::Alias) && !node.anchor.nil?
+      (anchors[node.anchor] ||= []) << node
+    end
+    node.children.each { |child| visit.call(child) } if node.respond_to?(:children) && node.children
+  end
+  visit.call(document)
+  { anchors: anchors, positions: positions }
 end
 
-def resolve_alias(node, anchors)
+def resolve_alias(node, context)
   seen = Set.new
   while node.is_a?(Psych::Nodes::Alias)
-    return nil if seen.include?(node.anchor)
+    return nil unless seen.add?(node.object_id)
 
-    seen.add(node.anchor)
-    node = anchors[node.anchor]
+    alias_position = context[:positions].fetch(node.object_id)
+    node = context[:anchors].fetch(node.anchor, []).reverse.find do |candidate|
+      context[:positions].fetch(candidate.object_id) < alias_position
+    end
     return nil if node.nil?
   end
   node
 end
 
-def scalar_value(node, anchors)
-  resolved = resolve_alias(node, anchors)
+def scalar_value(node, context)
+  resolved = resolve_alias(node, context)
   resolved.value if resolved.is_a?(Psych::Nodes::Scalar)
 end
 
-def collect_anchors(node, anchors = {})
-  register_anchor(node, anchors)
-  return anchors unless node.respond_to?(:children) && node.children
-
-  node.children.each { |child| collect_anchors(child, anchors) }
-  anchors
-end
-
-def mapping_entries(node, anchors)
-  resolved = resolve_alias(node, anchors)
+def mapping_entries(node, context)
+  resolved = resolve_alias(node, context)
   return [] unless resolved.is_a?(Psych::Nodes::Mapping)
 
   resolved.children.each_slice(2).to_a
 end
 
-def mapping_values(node, name, anchors)
-  mapping_entries(node, anchors).filter_map do |key, value|
-    [key, value] if scalar_value(key, anchors) == name
+def mapping_values(node, name, context)
+  mapping_entries(node, context).filter_map do |key, value|
+    [key, value] if scalar_value(key, context) == name
   end
 end
 
-def sequence_items(node, anchors)
-  resolved = resolve_alias(node, anchors)
+def sequence_items(node, context)
+  resolved = resolve_alias(node, context)
   return [] unless resolved.is_a?(Psych::Nodes::Sequence)
 
   resolved.children
 end
 
-def each_mapping_uses(node, anchors)
-  mapping_values(node, "uses", anchors).each do |key, value|
+def each_mapping_uses(node, context)
+  mapping_values(node, "uses", context).each do |key, value|
     location = "line #{key.start_line + 1}, column #{key.start_column + 1}"
-    yield scalar_value(value, anchors), location
+    yield scalar_value(value, context), location
   end
 end
 
-def each_steps_uses(node, anchors, &block)
-  sequence_items(node, anchors).each do |step|
-    each_mapping_uses(step, anchors, &block)
+def each_steps_uses(node, context, &block)
+  sequence_items(node, context).each do |step|
+    each_mapping_uses(step, context, &block)
   end
 end
 
-def each_workflow_uses(root, anchors, &block)
-  mapping_values(root, "jobs", anchors).each do |_jobs_key, jobs|
-    mapping_entries(jobs, anchors).each do |_job_name, job|
-      each_mapping_uses(job, anchors, &block)
-      mapping_values(job, "steps", anchors).each do |_steps_key, steps|
-        each_steps_uses(steps, anchors, &block)
+def each_workflow_uses(root, context, &block)
+  mapping_values(root, "jobs", context).each do |_jobs_key, jobs|
+    mapping_entries(jobs, context).each do |_job_name, job|
+      each_mapping_uses(job, context, &block)
+      mapping_values(job, "steps", context).each do |_steps_key, steps|
+        each_steps_uses(steps, context, &block)
       end
     end
   end
 end
 
-def each_composite_action_uses(root, anchors, &block)
-  mapping_values(root, "runs", anchors).each do |_runs_key, runs|
-    mapping_values(runs, "steps", anchors).each do |_steps_key, steps|
-      each_steps_uses(steps, anchors, &block)
+def each_composite_action_uses(root, context, &block)
+  mapping_values(root, "runs", context).each do |_runs_key, runs|
+    mapping_values(runs, "steps", context).each do |_steps_key, steps|
+      each_steps_uses(steps, context, &block)
     end
   end
 end
 
 def each_action_uses(stream, path, &block)
-  anchors = collect_anchors(stream)
-
   stream.children.each do |document|
+    context = document_context(document)
     document.children.each do |root|
       if path.match?(ACTION_METADATA_PATH)
-        each_composite_action_uses(root, anchors, &block)
+        each_composite_action_uses(root, context, &block)
       else
-        each_workflow_uses(root, anchors, &block)
+        each_workflow_uses(root, context, &block)
       end
     end
   end

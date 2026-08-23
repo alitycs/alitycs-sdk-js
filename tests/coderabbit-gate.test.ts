@@ -1371,6 +1371,46 @@ jobs:
     expect(invalid.stderr).toContain('"docker://alpine:latest"');
     expect(invalid.stderr).toContain('"actions/cache@v4"');
 
+    const flowRedefinition = await runPinVerifier(`
+{ jobs: { invalid: { steps: [{ uses: &pin actions/checkout@v4 }, { uses: *pin }] } }, later: &pin actions/checkout@${"e".repeat(40)} }
+`);
+    expect(flowRedefinition.exitCode).toBe(1);
+    expect(
+      flowRedefinition.stderr.match(/"actions\/checkout@v4"/g)?.length,
+    ).toBe(2);
+
+    const laterRedefinition = await runPinVerifier(`
+defaults: &pin actions/checkout@v4
+jobs:
+  invalid:
+    steps:
+      - uses: *pin
+later: &pin actions/checkout@${"f".repeat(40)}
+`);
+    expect(laterRedefinition.exitCode).toBe(1);
+    expect(laterRedefinition.stderr).toContain('"actions/checkout@v4"');
+
+    const validRedefinition = await runPinVerifier(`
+earlier: &pin actions/checkout@v4
+current: &pin actions/checkout@${"1".repeat(40)}
+jobs:
+  valid:
+    steps:
+      - uses: *pin
+`);
+    expect(validRedefinition.exitCode).toBe(0);
+
+    const crossDocumentAlias = await runPinVerifier(`
+defaults: &pin actions/checkout@${"2".repeat(40)}
+---
+jobs:
+  invalid:
+    steps:
+      - uses: *pin
+`);
+    expect(crossDocumentAlias.exitCode).toBe(1);
+    expect(crossDocumentAlias.stderr).toContain("uses must be a scalar string");
+
     const valid = await runPinVerifier(`
 env:
   uses: actions/root-environment@v4
