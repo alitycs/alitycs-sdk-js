@@ -129,8 +129,9 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
    App installation permissions, and remote workflow blobs back through the GitHub API before use.
 4. Merge those baseline files using the repository's existing protections. The gate cannot be
    required before its trusted workflow exists on `main`.
-5. From a clean checkout of the merged `main`, rerun `./scripts/validate-coderabbit.sh`, then open a
-   separate human-authored canary pull request. Observe an initial gate failure, obtain a formal
+5. From a clean checkout of the merged `main`, rerun `./scripts/verify-workflow-pins.rb`,
+   `./scripts/validate-coderabbit.sh`, and the repository policy tests, then open a separate
+   human-authored canary pull request. Observe an initial gate failure, obtain a formal
    exact-head CodeRabbit approval and successful gate, dismiss it and observe a newer gate failure,
    then obtain a fresh approval and successful gate. Verify there is exactly one stable App-owned
    gate check for the head, that each completed check is renamed and replaced by a fresh
