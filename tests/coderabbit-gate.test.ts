@@ -25,6 +25,7 @@ interface RunOptions {
   installationMissingCurrent?: boolean;
   installationToken?: string | null;
   invalidSelectedRepository?: boolean;
+  mainChangesBeforeConclusion?: boolean;
   newerGateAppearsAfterCreate?: boolean;
   mainChangesDuringEvaluation?: boolean;
   nonRegularProtectedPath?: string;
@@ -301,7 +302,8 @@ async function runGate(options: RunOptions = {}) {
             data: {
               object: {
                 sha:
-                  options.mainChangesDuringEvaluation && getRefCount > 1
+                  (options.mainChangesDuringEvaluation && getRefCount > 1) ||
+                  (options.mainChangesBeforeConclusion && getRefCount > 2)
                     ? "fedcba9876543210fedcba9876543210fedcba98"
                     : baseSha,
               },
@@ -938,6 +940,20 @@ describe("trusted CodeRabbit workflow", () => {
     expect(result.updated.at(-1)).toMatchObject({ conclusion: "failure" });
   });
 
+  test("rechecks main immediately before the gate conclusion", async () => {
+    const result = await runGate({
+      mainChangesBeforeConclusion: true,
+      reviews: [
+        review("coderabbitai[bot]", "APPROVED", "2026-08-23T12:00:00Z"),
+      ],
+    });
+
+    expect(result.failures).toEqual([
+      `The trusted main branch changed before the gate conclusion. Compared base ${baseSha}.`,
+    ]);
+    expect(result.updated.at(-1)).toMatchObject({ conclusion: "failure" });
+  });
+
   test("fails the workflow when canonical check discovery fails", async () => {
     const result = await runGate({
       gateChecksError: new Error("check list failed"),
@@ -1302,6 +1318,16 @@ describe("trusted CodeRabbit workflow", () => {
     expect(audit).toContain("(.events | sort) == ([");
     expect(audit).toContain("first(.[] | .installations[] | select(");
     expect(audit).not.toContain("head -n 1");
+    expect(audit).toContain('fail "could not read the gate App ID"');
+    for (const variable of [
+      "$gate_client_id_variable",
+      "$gate_app_id_variable",
+      "$gate_canary_sha_variable",
+    ]) {
+      expect(audit).toContain(
+        `fail "${variable} is missing from the repository"`,
+      );
+    }
   });
 
   test("structurally rejects mutable GitHub and Docker action references", async () => {

@@ -141,7 +141,8 @@ jq -e '
 ' <<<"$coderabbit_installation" >/dev/null ||
 	fail "coderabbitai must match the documented permission and webhook allowlists"
 
-gate_app_id="$(jq -r '.app_id' <<<"$installation")"
+gate_app_id="$(jq -r '.app_id // empty' <<<"$installation")"
+[[ "$gate_app_id" =~ ^[1-9][0-9]*$ ]] || fail "could not read the gate App ID"
 installation_updated_at="$(jq -r '.updated_at // empty' <<<"$installation")"
 [[ -n "$installation_updated_at" ]] || fail "could not read the gate App installation update time"
 gate_app="$(gh api -H "Time-Zone: UTC" "apps/$gate_app_slug")"
@@ -168,13 +169,17 @@ jq -e '
 	fail "$gate_environment must allow exactly the main branch"
 
 configured_client_id="$(
-	gh api "repos/$repository/actions/variables/$gate_client_id_variable" --jq .value
+	gh api "repos/$repository/actions/variables/$gate_client_id_variable" --jq .value ||
+		fail "$gate_client_id_variable is missing from the repository"
 )"
+[[ -n "$configured_client_id" ]] || fail "$gate_client_id_variable is empty"
 [[ "$configured_client_id" == "$gate_client_id" ]] ||
 	fail "$gate_client_id_variable does not match the installed gate App"
 configured_app_id="$(
-	gh api "repos/$repository/actions/variables/$gate_app_id_variable" --jq .value
+	gh api "repos/$repository/actions/variables/$gate_app_id_variable" --jq .value ||
+		fail "$gate_app_id_variable is missing from the repository"
 )"
+[[ -n "$configured_app_id" ]] || fail "$gate_app_id_variable is empty"
 [[ "$configured_app_id" == "$gate_app_id" ]] ||
 	fail "$gate_app_id_variable does not match the installed gate App"
 gate_secret_metadata="$(
@@ -184,7 +189,8 @@ gate_secret_metadata="$(
 gate_secret_updated_at="$(jq -r '.updated_at // empty' <<<"$gate_secret_metadata")"
 [[ -n "$gate_secret_updated_at" ]] || fail "could not read the gate private-key update time"
 canary_sha="$(
-	gh api "repos/$repository/actions/variables/$gate_canary_sha_variable" --jq .value
+	gh api "repos/$repository/actions/variables/$gate_canary_sha_variable" --jq .value ||
+		fail "$gate_canary_sha_variable is missing from the repository"
 )"
 [[ "$canary_sha" =~ ^[0-9a-f]{40}$ ]] ||
 	fail "$gate_canary_sha_variable must contain a full lowercase commit SHA"

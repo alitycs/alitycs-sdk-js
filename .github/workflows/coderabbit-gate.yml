@@ -743,6 +743,13 @@ jobs:
                 }
 
                 const finalInstallation = await inspectInstallation();
+                const finalMainSha = (
+                  await github.rest.git.getRef({
+                    owner,
+                    repo,
+                    ref: "heads/main",
+                  })
+                ).data.object.sha;
                 if (
                   !finalInstallation.includesCurrent ||
                   finalInstallation.invalidRepositories.length > 0 ||
@@ -752,6 +759,15 @@ jobs:
                     "The Gate App selected-repository boundary changed or became unsafe before " +
                     "the gate conclusion.";
                   if (await finish("failure", "Gate App installation changed", message)) {
+                    core.setFailed(message);
+                  }
+                  return;
+                }
+                if (finalMainSha !== baseSha) {
+                  const message =
+                    "The trusted main branch changed before the gate conclusion. " +
+                    `Compared base ${baseSha}.`;
+                  if (await finish("failure", "Trusted base changed", message)) {
                     core.setFailed(message);
                   }
                   return;
