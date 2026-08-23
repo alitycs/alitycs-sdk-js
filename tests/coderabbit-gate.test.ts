@@ -14,6 +14,7 @@ interface RunOptions {
   claimLostBeforeFinish?: boolean;
   duplicateHead?: boolean;
   environmentMainOnly?: boolean;
+  existingChecksInProgress?: boolean;
   existingGateExternalIds?: string[];
   existingGateCheckIds?: number[];
   gateAppId?: number | null;
@@ -137,13 +138,13 @@ async function runGate(options: RunOptions = {}) {
     options.existingGateCheckIds ?? []
   ).map((id, index) => ({
     app: { id: gateAppId, slug: gateAppSlug },
-    conclusion: "failure",
+    conclusion: options.existingChecksInProgress ? null : "failure",
     external_id:
       options.existingGateExternalIds?.[index] ?? "previous-reconciliation",
     head_sha: headSha,
     id,
     name: gateName,
-    status: "completed",
+    status: options.existingChecksInProgress ? "in_progress" : "completed",
   }));
   const selectedRepositories = [
     {
@@ -454,10 +455,17 @@ async function runRoute(
     canonicalId?: number;
     canonicalName?: string;
     canonicalPath?: string;
+    collaboratorForbidden?: boolean;
     collaboratorNotFound?: boolean;
     collaboratorPermission?: string;
+    dispatchInput?: unknown;
     emptyPullRequests?: boolean;
-    eventName?: "issue_comment" | "pull_request_target" | "workflow_run";
+    eventName?:
+      | "issue_comment"
+      | "pull_request_target"
+      | "push"
+      | "workflow_dispatch"
+      | "workflow_run";
     headSha?: string;
     matchingPullRequests?: number;
     pullRequestAction?: "edited" | "opened";
@@ -469,6 +477,7 @@ async function runRoute(
   const script = await loadRouteScript();
   const outputs: Record<string, string> = {};
   const failures: string[] = [];
+  const warnings: string[] = [];
   const eventName = options.eventName ?? "workflow_run";
   const listPullRequests = () => undefined;
   const context = {
@@ -485,16 +494,22 @@ async function runRoute(
                 : {},
               pull_request: { number: 7 },
             }
-          : {
-              workflow_run: {
-                actor: { login: options.actor ?? "github-actions[bot]" },
-                event: "pull_request_review",
-                head_sha: options.headSha ?? headSha,
-                path: options.runPath ?? reviewSignalPath,
-                pull_requests: options.emptyPullRequests ? [] : [{ number: 7 }],
-                workflow_id: options.runId ?? 77,
-              },
-            },
+          : eventName === "workflow_dispatch"
+            ? { inputs: { pull_request: options.dispatchInput ?? "7" } }
+            : eventName === "push"
+              ? {}
+              : {
+                  workflow_run: {
+                    actor: { login: options.actor ?? "github-actions[bot]" },
+                    event: "pull_request_review",
+                    head_sha: options.headSha ?? headSha,
+                    path: options.runPath ?? reviewSignalPath,
+                    pull_requests: options.emptyPullRequests
+                      ? []
+                      : [{ number: 7 }],
+                    workflow_id: options.runId ?? 77,
+                  },
+                },
     repo: { owner: "alitycs", repo: "alitycs-sdk-js" },
   };
   const github = {
@@ -528,6 +543,9 @@ async function runRoute(
       },
       repos: {
         getCollaboratorPermissionLevel: async () => {
+          if (options.collaboratorForbidden) {
+            throw Object.assign(new Error("Forbidden"), { status: 403 });
+          }
           if (options.collaboratorNotFound) {
             throw Object.assign(new Error("Not found"), { status: 404 });
           }
@@ -544,10 +562,11 @@ async function runRoute(
     setOutput: (name: string, value: string) => {
       outputs[name] = value;
     },
+    warning: (message: string) => warnings.push(message),
   };
   const execute = new AsyncFunction("github", "context", "core", script);
   await execute(github, context, core);
-  return { failures, outputs };
+  return { failures, outputs, warnings };
 }
 
 function review(
@@ -791,6 +810,29 @@ describe("trusted CodeRabbit workflow", () => {
     expect(await loadGateScript()).toContain("listForRef");
   });
 
+  test("supersedes an in-progress owned check before reconciling", async () => {
+    const result = await runGate({
+      existingChecksInProgress: true,
+      existingGateCheckIds: [401],
+      reviews: [
+        review("coderabbitai[bot]", "APPROVED", "2026-08-23T12:00:00Z"),
+      ],
+    });
+
+    expect(result.failures).toEqual([]);
+    expect(result.updated[0]).toMatchObject({
+      check_run_id: 401,
+      conclusion: "neutral",
+      name: `${gateName} (superseded 401)`,
+      status: "completed",
+    });
+    expect(result.updated.at(-1)).toMatchObject({
+      check_run_id: 501,
+      conclusion: "success",
+      status: "completed",
+    });
+  });
+
   test("normalizes duplicate app-owned checks before publishing success", async () => {
     const result = await runGate({
       existingGateCheckIds: [401, 402],
@@ -831,7 +873,10 @@ describe("trusted CodeRabbit workflow", () => {
   });
 
   test("supersedes its fresh check when a newer claim appears concurrently", async () => {
-    const result = await runGate({ newerGateAppearsAfterCreate: true, runId: 99 });
+    const result = await runGate({
+      newerGateAppearsAfterCreate: true,
+      runId: 99,
+    });
 
     expect(result.created).toHaveLength(1);
     expect(result.updated).toContainEqual(
@@ -841,9 +886,9 @@ describe("trusted CodeRabbit workflow", () => {
         name: `${gateName} (superseded 501)`,
       }),
     );
-    expect(result.gateChecks.filter((checkRun) => checkRun.name === gateName)).toEqual([
-      expect.objectContaining({ id: 502 }),
-    ]);
+    expect(
+      result.gateChecks.filter((checkRun) => checkRun.name === gateName),
+    ).toEqual([expect.objectContaining({ id: 502 })]);
     expect(result.notices).toContain(
       "A newer reconciliation won the exact-head gate claim.",
     );
@@ -986,6 +1031,43 @@ describe("trusted CodeRabbit workflow", () => {
     });
   });
 
+  test("fans a main push out to every open pull request", async () => {
+    const result = await runRoute({
+      eventName: "push",
+      matchingPullRequests: 3,
+    });
+
+    expect(result.failures).toEqual([]);
+    expect(result.outputs).toEqual({
+      has_pull_requests: "true",
+      pull_requests: "[7,8,9]",
+    });
+  });
+
+  test("routes only a valid manually dispatched pull-request number", async () => {
+    const valid = await runRoute({
+      dispatchInput: "42",
+      eventName: "workflow_dispatch",
+    });
+    expect(valid.failures).toEqual([]);
+    expect(valid.outputs).toEqual({
+      has_pull_requests: "true",
+      pull_requests: "[42]",
+    });
+
+    const invalid = await runRoute({
+      dispatchInput: "not-a-number",
+      eventName: "workflow_dispatch",
+    });
+    expect(invalid.failures).toEqual([
+      "A valid pull-request number is required.",
+    ]);
+    expect(invalid.outputs).toEqual({
+      has_pull_requests: "false",
+      pull_requests: "[]",
+    });
+  });
+
   test("accepts review signals only from CodeRabbit or current writers", async () => {
     for (const accepted of [
       await runRoute({
@@ -1011,6 +1093,22 @@ describe("trusted CodeRabbit workflow", () => {
         pull_requests: "[]",
       });
     }
+  });
+
+  test("treats an unavailable collaborator permission lookup as untrusted", async () => {
+    const result = await runRoute({
+      actor: "unknown",
+      collaboratorForbidden: true,
+    });
+
+    expect(result.failures).toEqual([]);
+    expect(result.outputs).toEqual({
+      has_pull_requests: "false",
+      pull_requests: "[]",
+    });
+    expect(result.warnings).toEqual([
+      "The router token cannot read collaborator permission; treating the actor as untrusted.",
+    ]);
   });
 
   test("reconciles edited pull requests only when the base changes", async () => {
@@ -1129,15 +1227,37 @@ describe("trusted CodeRabbit workflow", () => {
     );
   });
 
-  test("limits live schema validation to policy-changing pull requests", async () => {
+  test("limits pinned validation to relevant pull-request inputs", async () => {
     const ci = await Bun.file(".github/workflows/ci.yml").text();
     const docs = await Bun.file("docs/coderabbit.md").text();
-    expect(ci).toContain("Detect CodeRabbit configuration changes");
+    const validator = await Bun.file("scripts/validate-coderabbit.sh").text();
+    const requirements = await Bun.file(
+      "scripts/coderabbit-validator-requirements.txt",
+    ).text();
+    expect(ci).toContain("Detect CodeRabbit validation input changes");
     expect(ci).toContain(
       "if: steps.coderabbit-config.outputs.changed == 'true'",
     );
-    expect(ci).toContain("-- .coderabbit.yaml");
+    for (const validationPath of [
+      ".coderabbit.yaml",
+      "scripts/coderabbit-schema.v2.json",
+      "scripts/coderabbit-validator-requirements.txt",
+      "scripts/validate-coderabbit.sh",
+    ]) {
+      expect(ci).toContain(`"${validationPath}"`);
+    }
+    expect(ci).toContain(
+      'git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- "${validation_paths[@]}"',
+    );
     expect(ci).toContain("./scripts/verify-workflow-pins.rb");
+    expect(ci).toMatch(/ruby\/setup-ruby@[0-9a-f]{40}/);
+    expect(ci).toContain('ruby-version: "3.3.12"');
+    expect(validator).toContain("--require-hashes");
+    expect(validator).toContain("coderabbit-schema.v2.json");
+    expect(validator).not.toContain("command -v check-jsonschema");
+    expect(validator).not.toContain("https://coderabbit.ai");
+    expect(requirements).toContain("check-jsonschema==0.37.4");
+    expect(requirements).toContain("--hash=sha256:");
     expect(
       docs.match(/\.\/scripts\/validate-coderabbit\.sh/g)?.length ?? 0,
     ).toBeGreaterThanOrEqual(3);
@@ -1174,6 +1294,8 @@ describe("trusted CodeRabbit workflow", () => {
     expect(audit).not.toContain(".permissions.checks ==");
     expect(audit).toContain("(.events // []) == []");
     expect(audit).toContain("(.events | sort) == ([");
+    expect(audit).toContain("first(.[] | .installations[] | select(");
+    expect(audit).not.toContain("head -n 1");
   });
 
   test("structurally rejects mutable GitHub and Docker action references", async () => {

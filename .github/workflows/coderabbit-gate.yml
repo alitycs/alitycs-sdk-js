@@ -83,6 +83,12 @@ jobs:
                 return ["admin", "maintain", "write"].includes(permission.data.permission);
               } catch (error) {
                 if (error.status === 404) return false;
+                if (error.status === 403) {
+                  core.warning(
+                    "The router token cannot read collaborator permission; treating the actor as untrusted.",
+                  );
+                  return false;
+                }
                 throw error;
               }
             };

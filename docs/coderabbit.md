@@ -4,6 +4,12 @@ This repository owns its complete CodeRabbit policy in `.coderabbit.yaml`; it do
 configuration from another repository. Keep the policy, trusted gate workflow, contributor docs,
 and branch protection in sync when review behavior changes.
 
+Policy validation is also repository-owned: `scripts/coderabbit-schema.v2.json` is the reviewed
+schema snapshot, and `scripts/coderabbit-validator-requirements.txt` locks the validator and every
+transitive Python dependency by hash. `scripts/validate-coderabbit.sh` verifies the schema digest,
+creates an isolated environment with Python 3.11 or newer, and never uses an ambient validator
+from `PATH`.
+
 ## Merge policy
 
 - Ready, human-authored pull requests are reviewed automatically. The required
@@ -114,6 +120,8 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
    `./scripts/verify-workflow-pins.rb`, `./scripts/validate-coderabbit.sh`, and the repository policy
    tests before merging the baseline. The structural verifier covers YAML quoting, flow mappings,
    aliases, duplicate keys, and tracked local composite-action metadata.
+   Copy the pinned schema snapshot, hash-locked validator requirements, and validation script as a
+   reviewed set; do not switch validation back to a mutable schema URL or ambient executable.
 3. Create the `coderabbit-gate` environment with a selected deployment-branch policy for `main`
    only. Set repository variables `ALITYCS_CODERABBIT_GATE_APP_ID` and
    `ALITYCS_CODERABBIT_GATE_CLIENT_ID`, plus environment secret
@@ -152,7 +160,8 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
    `ALITYCS_CODERABBIT_GATE_CANARY_SHA` in every affected SDK. Audit timestamps are read in UTC so
    the comparison is independent of the GitHub CLI client's local timezone, and the canary must
    complete strictly after every relevant update to fail closed on same-second ambiguity. The audit
-   requires Bash, Git, GitHub CLI, jq, and Ruby with its standard-library Psych parser.
+   requires Bash, Git, GitHub CLI, jq, and Ruby 3.3 or newer with its standard-library Psych
+   parser. CI pins Ruby 3.3.12 for deterministic workflow parsing.
 
 ## Upgrade the gate
 
@@ -161,7 +170,7 @@ workflow tree is protected. Open and fully review changes to `.coderabbit.yaml` 
 Run `./scripts/verify-workflow-pins.rb` for every workflow change, run
 `./scripts/validate-coderabbit.sh` for every policy change and run the repository policy tests
 before temporarily removing only the dedicated gate check from branch protection. Merge after
-every other required check passes. From a clean checkout of the new `main`, rerun the live-schema
+every other required check passes. From a clean checkout of the new `main`, rerun the pinned-schema
 validator before opening a canary against the new trusted policy and workflow pair. Restore the
 app-bound required check only after the canary succeeds. Never disable the surrounding CI,
 signature, history, conversation, force-push, or deletion protections.

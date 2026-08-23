@@ -25,14 +25,27 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.3.12"
       - name: Verify immutable workflow actions
         run: ./scripts/verify-workflow-pins.rb
-      - name: Detect CodeRabbit configuration changes
+      - name: Detect CodeRabbit validation input changes
         id: coderabbit-config
         shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          validation_paths=(
+            ".coderabbit.yaml"
+            "scripts/coderabbit-schema.v2.json"
+            "scripts/coderabbit-validator-requirements.txt"
+            "scripts/validate-coderabbit.sh"
+          )
           if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] &&
-            git diff --quiet "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" -- .coderabbit.yaml; then
+            git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- "${validation_paths[@]}"; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"

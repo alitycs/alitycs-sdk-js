@@ -87,8 +87,9 @@ installations="$(
 		"orgs/$owner/installations?per_page=100"
 )"
 installation="$(
-	jq -c --arg slug "$gate_app_slug" '.[] | .installations[] | select(.app_slug == $slug)' <<<"$installations" |
-		head -n 1
+	jq -c --arg slug "$gate_app_slug" \
+		'first(.[] | .installations[] | select(.app_slug == $slug)) // empty' \
+		<<<"$installations"
 )"
 [[ -n "$installation" ]] || fail "$gate_app_slug is not installed for $owner"
 jq -e '
@@ -106,8 +107,9 @@ jq -e '
 	fail "$gate_app_slug must use selected repositories with only the documented permissions"
 
 coderabbit_installation="$(
-	jq -c '.[] | .installations[] | select(.app_slug == "coderabbitai")' <<<"$installations" |
-		head -n 1
+	jq -c \
+		'first(.[] | .installations[] | select(.app_slug == "coderabbitai")) // empty' \
+		<<<"$installations"
 )"
 [[ -n "$coderabbit_installation" ]] || fail "coderabbitai is not installed for $owner"
 jq -e '
