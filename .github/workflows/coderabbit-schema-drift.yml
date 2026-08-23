@@ -44,7 +44,9 @@ jobs:
             exit 0
           fi
 
-          readonly pinned_sha="$(sha256sum "$pinned_schema" | awk '{print $1}')"
-          readonly live_sha="$(sha256sum "$live_schema" | awk '{print $1}')"
+          pinned_sha="$(sha256sum "$pinned_schema" | awk '{print $1}')"
+          readonly pinned_sha
+          live_sha="$(sha256sum "$live_schema" | awk '{print $1}')"
+          readonly live_sha
           echo "::error title=CodeRabbit schema drift::The live schema changed (pinned=$pinned_sha live=$live_sha). Review and update the snapshot, validator, policy, and tests together."
           exit 1

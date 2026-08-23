@@ -124,39 +124,65 @@ gate_repository_pages="$(
 organization_repository_pages="$(
 	gh api --paginate --slurp "orgs/$owner/repos?type=public&per_page=100"
 )"
-jq -e --slurp --arg owner "$owner" --arg repository "$repository" \
-	--arg sdk_pattern "$sdk_repository_pattern" '
-	.[0] as $gate_pages |
-	.[1] as $organization_pages |
-	[$gate_pages[] | .repositories[]] as $selected |
-	[$organization_pages[] | .[] |
+selected_repository_names="$(
+	jq -r '
+		.[] | .repositories[] |
+		(.full_name // "\(.owner.login)/\(.name)")
+	' <<<"$gate_repository_pages"
+)" || fail "could not read the Gate App repository names"
+organization_sdk_repository_names="$(
+	jq -r --arg owner "$owner" --arg sdk_pattern "$sdk_repository_pattern" '
+		.[] | .[] |
 		select(
 			.owner.login == $owner and
 			(.name | test($sdk_pattern)) and
-			.private == false and
-			(.visibility // "public") == "public" and
-			.archived == false and
-			.disabled == false and
-			.fork == false and
-			.default_branch == "main"
-		)
-	] as $expected |
-	($selected | length) > 0 and
-	all($selected[];
+			(.private // false) == false and
+			(.visibility // "public") == "public"
+		) |
+		(.full_name // "\(.owner.login)/\(.name)")
+	' <<<"$organization_repository_pages"
+)" || fail "could not read the public SDK repository names"
+repository_names="$(
+	printf '%s\n' "$selected_repository_names" "$organization_sdk_repository_names" | sort -u
+)"
+[[ -n "$repository_names" ]] || fail "could not resolve the Gate App repository selection"
+resolved_repository_metadata="$(
+	while IFS= read -r repository_name; do
+		[[ -n "$repository_name" ]] || continue
+		full_repository="$(gh api "repos/$repository_name")" || exit 1
+		jq -c . <<<"$full_repository" || exit 1
+	done <<<"$repository_names" | jq -sc .
+)" || fail "could not resolve full metadata for every selected or public SDK repository"
+jq -e --slurp --arg owner "$owner" --arg repository "$repository" \
+	--arg sdk_pattern "$sdk_repository_pattern" '
+	def canonical_name: .full_name // "\(.owner.login)/\(.name)";
+	def public_sdk_candidate:
 		.owner.login == $owner and
 		(.name | test($sdk_pattern)) and
-		.private == false and
-		(.visibility // "public") == "public" and
-		.archived == false and
-		.disabled == false and
-		.fork == false and
-		.default_branch == "main"
+		(.private // false) == false and
+		(.visibility // "public") == "public";
+	def active_public_sdk:
+		public_sdk_candidate and
+		((.archived // false) == false) and
+		((.disabled // false) == false) and
+		((.fork // false) == false) and
+		.default_branch == "main";
+	.[0] as $gate_pages |
+	.[1] as $resolved |
+	[$gate_pages[] | .repositories[] | canonical_name] as $selected_names |
+	[$resolved[] | select(active_public_sdk) | .full_name] as $expected_names |
+	($selected_names | length) > 0 and
+	all($selected_names[]; type == "string" and length > 0) and
+	(($selected_names | length) == ($selected_names | unique | length)) and
+	all($resolved[];
+		(public_sdk_candidate | not) or
+		((.default_branch | type) == "string" and (.default_branch | length) > 0)
 	) and
-	([$selected[] | select(.full_name == $repository)] | length == 1) and
-	(($selected | map(.full_name) | sort) == ($expected | map(.full_name) | sort))
+	([$selected_names[] | select(. == $repository)] | length == 1) and
+	(($selected_names | sort) == ($expected_names | unique | sort))
 ' < <(
 	printf '%s\n' "$gate_repository_pages"
-	printf '%s\n' "$organization_repository_pages"
+	printf '%s\n' "$resolved_repository_metadata"
 ) >/dev/null ||
 	fail "$gate_app_slug must select every active public SDK and no other repository, including $repository"
 

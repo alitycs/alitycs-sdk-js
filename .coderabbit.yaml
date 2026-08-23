@@ -92,8 +92,9 @@ reviews:
         policy blob and complete workflow tree against the current main ref, reconcile reviews from
         the API, and avoid repository-global concurrency keys. Rename prior canonical checks to
         unique neutral superseded names, create a fresh exact-head check owned by the dedicated
-        Alitycs Gate app, and normalize concurrent duplicates before any conclusion. Ordinary pull
-        requests must not alter this file.
+        Alitycs Gate app, and normalize concurrent duplicates before any conclusion. Initial SDK
+        bootstrap follows the documented seed procedure; after that baseline is on main, ordinary
+        pull requests must not alter this file.
     - path: ".github/workflows/coderabbit-review-event.yml"
       instructions: >-
         Keep this review-state signal unprivileged: pull_request_review submitted/dismissed only,
@@ -104,8 +105,9 @@ reviews:
     - path: ".github/workflows/**"
       instructions: >-
         This entire tree is an exact protected boundary because required Actions checks are bound
-        by app and job name, not workflow identity. Ordinary pull requests must not change or add
-        workflows. Use the documented two-phase upgrade procedure. Keep permissions
+        by app and job name, not workflow identity. Initial SDK bootstrap follows the documented
+        seed procedure. After that baseline is on main, ordinary pull requests must not change or
+        add workflows; use the documented two-phase upgrade procedure. Keep permissions
         least-privileged, GitHub and reusable actions pinned to full commit SHAs, Docker actions
         pinned to SHA-256 digests, CI deterministic, and releases gated on the complete verification
         and package-integrity suite.

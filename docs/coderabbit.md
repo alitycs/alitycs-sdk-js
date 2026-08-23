@@ -7,8 +7,9 @@ and branch protection in sync when review behavior changes.
 Policy validation is also repository-owned: `scripts/coderabbit-schema.v2.json` is the reviewed
 schema snapshot, and `scripts/coderabbit-validator-requirements.txt` locks the validator and every
 transitive Python dependency by hash. `scripts/validate-coderabbit.sh` verifies the schema digest,
-creates an isolated environment with Python 3.11 or newer, and never uses an ambient validator
-from `PATH`.
+creates an isolated environment with CPython 3.11 through 3.14, and never uses an ambient validator
+from `PATH`. CI pins CPython 3.14.7; local environments with another default interpreter can set
+`PYTHON_BIN` to a supported CPython executable.
 
 `.github/workflows/coderabbit-schema-drift.yml` compares that snapshot with CodeRabbit's live
 schema every week and on manual dispatch. It never runs for pull requests or pushes and is
@@ -173,9 +174,10 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
    the comparison is independent of the GitHub CLI client's local timezone, and the canary must
    complete strictly after every relevant update to fail closed on same-second ambiguity. The audit
    directly compares the Gate App selection with every active public SDK in the organization. It
-   requires Bash, Git, GitHub CLI authenticated as an organization owner with the `read:user`
-   scope, jq, and Ruby 3.3 or newer with its standard-library Psych parser. CI pins Ruby 3.3.12 for
-   deterministic workflow parsing.
+   resolves full repository metadata before evaluating lifecycle and default-branch state instead
+   of trusting optional fields in list responses. It requires Bash, Git, GitHub CLI authenticated
+   as an organization owner with the `read:user` scope, jq, and Ruby 3.3 or newer with its
+   standard-library Psych parser. CI pins Ruby 3.3.12 for deterministic workflow parsing.
 
 ## Upgrade the gate
 

@@ -1302,12 +1302,22 @@ describe("trusted CodeRabbit workflow", () => {
       'git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- "${validation_paths[@]}"',
     );
     expect(ci).toContain("./scripts/verify-workflow-pins.rb");
+    expect(ci).toMatch(/actions\/setup-python@[0-9a-f]{40}/);
+    expect(ci).toContain('python-version: "3.14.7"');
     expect(ci).toMatch(/ruby\/setup-ruby@[0-9a-f]{40}/);
     expect(ci).toContain('ruby-version: "3.3.12"');
     expect(validator).toContain("--require-hashes");
     expect(validator).toContain("coderabbit-schema.v2.json");
     expect(validator).not.toContain("command -v check-jsonschema");
     expect(validator).not.toContain("https://coderabbit.ai");
+    expect(validator).toContain('readonly python_bin="${PYTHON_BIN:-python3}"');
+    expect(validator).toContain(
+      "not (3, 11) <= sys.version_info[:2] <= (3, 14)",
+    );
+    expect(validator).toContain("requires CPython 3.11 through 3.14");
+    expect(validator).not.toMatch(
+      /readonly (?:script_dir|repository_root)="\$\(/,
+    );
     expect(requirements).toContain("check-jsonschema==0.37.4");
     expect(requirements).toContain("--hash=sha256:");
     expect(requirements).toContain(
@@ -1345,9 +1355,13 @@ describe("trusted CodeRabbit workflow", () => {
       "https://coderabbit.ai/integrations/schema.v2.json",
     );
     expect(workflow).toContain('cmp --silent "$pinned_schema" "$live_schema"');
+    expect(workflow).not.toMatch(/readonly [a-z_]+="\$\(/);
     expect(docs).toContain("deliberately not a required merge check");
     expect(policy).toContain(
       "keep the scheduled live-schema drift check non-gating",
+    );
+    expect(policy).toMatch(
+      /Initial SDK\s+bootstrap follows the documented seed procedure/,
     );
   });
 
@@ -1389,6 +1403,11 @@ describe("trusted CodeRabbit workflow", () => {
       '"user/installations/$installation_id/repositories?per_page=100"',
     );
     expect(audit).toContain("must select every active public SDK");
+    expect(audit).toContain('gh api "repos/$repository_name"');
+    expect(audit).toContain("def active_public_sdk:");
+    expect(audit).toContain("((.archived // false) == false)");
+    expect(audit).toContain("((.disabled // false) == false)");
+    expect(audit).not.toContain('(.default_branch // "main")');
     const sdkRepositoryPattern = /^alitycs-sdk-[a-z0-9]+(?:-[a-z0-9]+)*$/;
     for (const name of [
       "alitycs-sdk-js",

@@ -2,19 +2,22 @@
 
 set -euo pipefail
 
-readonly script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-readonly repository_root="$(cd -- "$script_dir/.." && pwd -P)"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+readonly script_dir
+repository_root="$(cd -- "$script_dir/.." && pwd -P)"
+readonly repository_root
 readonly requirements_path="$script_dir/coderabbit-validator-requirements.txt"
 readonly schema_path="$script_dir/coderabbit-schema.v2.json"
 readonly schema_sha256="7a933a5461870f5d722751629e57b6e343d358a1887b0f9f2e7d6f0ccbf48e5a"
+readonly python_bin="${PYTHON_BIN:-python3}"
 
-python3 - "$schema_path" "$schema_sha256" <<'PY'
+"$python_bin" - "$schema_path" "$schema_sha256" <<'PY'
 import hashlib
 import pathlib
 import sys
 
-if sys.version_info < (3, 11):
-    raise SystemExit("CodeRabbit validation requires Python 3.11 or newer")
+if sys.implementation.name != "cpython" or not (3, 11) <= sys.version_info[:2] <= (3, 14):
+    raise SystemExit("CodeRabbit validation requires CPython 3.11 through 3.14")
 
 schema_path = pathlib.Path(sys.argv[1])
 expected = sys.argv[2]
@@ -28,7 +31,7 @@ PY
 validator_dir="$(mktemp -d)"
 trap 'rm -r -- "$validator_dir"' EXIT
 
-python3 -m venv "$validator_dir"
+"$python_bin" -m venv "$validator_dir"
 "$validator_dir/bin/python" -m pip install \
 	--disable-pip-version-check \
 	--no-input \
