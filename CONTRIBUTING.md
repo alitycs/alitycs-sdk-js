@@ -55,7 +55,7 @@ verifies that its approval covers the latest pushed commit; pushing another comm
 incremental review. The complete standalone policy and trusted evaluator live in this repository;
 see [CodeRabbit review gate](docs/coderabbit.md) for operation and upgrade procedures.
 Dependabot, Renovate, and GitHub Actions bot pull requests are intentionally skipped and instead
-require the normal CI checks plus one current-head human maintainer approval. If an approval lands
-after the evaluator times out, comment `/coderabbit-gate` to reconcile it. Administrators should
-use the documented protection override only as an incident break-glass measure and restore and
-verify the branch policy immediately afterward.
+require the normal CI checks plus one current-head human maintainer approval. Review submissions
+and dismissals automatically reconcile the gate; comment `/coderabbit-gate` only to recover from
+a missed GitHub event. Administrators should use the documented protection override only as an
+incident break-glass measure and restore and verify the branch policy immediately afterward.

@@ -1,11 +1,14 @@
 name: CodeRabbit gate
 
 on:
+  push:
+    branches: [main]
   pull_request_target:
     branches: [main]
-    types: [opened, reopened, synchronize, ready_for_review]
-  check_run:
-    types: [completed, rerequested]
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+  workflow_run:
+    workflows: ["CodeRabbit review event"]
+    types: [completed]
   issue_comment:
     types: [created]
   workflow_dispatch:
@@ -17,26 +20,194 @@ on:
 
 # This workflow intentionally runs only from the trusted default branch and never checks out or
 # executes pull-request code. Its private key is stored in a main-only GitHub environment.
-permissions:
-  contents: read
-
-concurrency:
-  group: >-
-    coderabbit-gate-${{ github.event.pull_request.number || github.event.issue.number ||
-    github.event.check_run.pull_requests[0].number || inputs.pull_request || github.run_id }}
-  cancel-in-progress: false
+permissions: {}
 
 jobs:
-  reconcile:
-    name: Reconcile CodeRabbit approval
+  route:
+    name: Validate reconciliation trigger
     if: >-
+      github.event_name == 'push' ||
       (github.event_name == 'pull_request_target' && github.event.pull_request.draft == false) ||
-      (github.event_name == 'check_run' && github.event.check_run.app.slug == 'coderabbitai') ||
+      (github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'pull_request_review') ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
       github.event.comment.body == '/coderabbit-gate') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      actions: read
+      pull-requests: read
+    outputs:
+      has_pull_requests: ${{ steps.route.outputs.has_pull_requests }}
+      pull_requests: ${{ steps.route.outputs.pull_requests }}
+    steps:
+      - name: Route the trusted event
+        id: route
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const reviewSignalPath = ".github/workflows/coderabbit-review-event.yml";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const emit = (pullNumbers) => {
+              const unique = [
+                ...new Set(
+                  pullNumbers
+                    .map(Number)
+                    .filter(
+                      (pullNumber) =>
+                        Number.isSafeInteger(pullNumber) && pullNumber > 0,
+                    ),
+                ),
+              ];
+              if (unique.length > 256) {
+                core.setFailed("Refusing to create more than 256 reconciliation jobs.");
+                core.setOutput("has_pull_requests", "false");
+                core.setOutput("pull_requests", "[]");
+                return;
+              }
+              core.setOutput("has_pull_requests", unique.length > 0 ? "true" : "false");
+              core.setOutput("pull_requests", JSON.stringify(unique));
+            };
+
+            const hasWriteAccess = async (login) => {
+              if (!login) return false;
+              try {
+                const permission = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner,
+                  repo,
+                  username: login,
+                });
+                return ["admin", "maintain", "write"].includes(permission.data.permission);
+              } catch (error) {
+                if (error.status === 404) return false;
+                throw error;
+              }
+            };
+
+            if (context.eventName === "workflow_run") {
+              const run = context.payload.workflow_run;
+              const canonical = await github.rest.actions.getWorkflow({
+                owner,
+                repo,
+                workflow_id: "coderabbit-review-event.yml",
+              });
+              const runPath = String(run.path || "").split("@")[0];
+              if (
+                run.event !== "pull_request_review" ||
+                run.workflow_id !== canonical.data.id ||
+                canonical.data.name !== "CodeRabbit review event" ||
+                canonical.data.path !== reviewSignalPath ||
+                runPath !== reviewSignalPath
+              ) {
+                core.setFailed("Rejected a non-canonical review-signal workflow run.");
+                emit([]);
+                return;
+              }
+              const reviewActor = run.actor?.login;
+              if (
+                reviewActor !== "coderabbitai[bot]" &&
+                !(await hasWriteAccess(reviewActor))
+              ) {
+                core.notice("Ignoring a review signal from an actor without write access.");
+                emit([]);
+                return;
+              }
+              let pullNumbers = (run.pull_requests || []).map(
+                (pullRequest) => pullRequest.number,
+              );
+              if (pullNumbers.length === 0) {
+                const runHeadSha = String(run.head_sha || "");
+                if (!/^[0-9a-f]{40}$/.test(runHeadSha)) {
+                  core.setFailed("The canonical review signal has no valid head SHA.");
+                  emit([]);
+                  return;
+                }
+                const openPullRequests = await github.paginate(
+                  github.rest.pulls.list,
+                  {
+                    owner,
+                    repo,
+                    state: "open",
+                    base: "main",
+                    per_page: 100,
+                  },
+                );
+                pullNumbers = openPullRequests
+                  .filter(
+                    (pullRequest) =>
+                      pullRequest.head.sha === runHeadSha ||
+                      pullRequest.merge_commit_sha === runHeadSha,
+                  )
+                  .map((pullRequest) => pullRequest.number);
+                if (new Set(pullNumbers).size !== 1) {
+                  core.setFailed(
+                    "The canonical review signal must resolve to exactly one open main pull request.",
+                  );
+                  emit([]);
+                  return;
+                }
+              }
+              emit(pullNumbers);
+              return;
+            }
+
+            if (context.eventName === "push") {
+              const pullRequests = await github.paginate(github.rest.pulls.list, {
+                owner,
+                repo,
+                state: "open",
+                base: "main",
+                per_page: 100,
+              });
+              emit(pullRequests.map((pullRequest) => pullRequest.number));
+              return;
+            }
+
+            if (
+              context.eventName === "pull_request_target" &&
+              context.payload.action === "edited" &&
+              !context.payload.changes?.base
+            ) {
+              core.notice("Ignoring a pull-request edit that did not change the base branch.");
+              emit([]);
+              return;
+            }
+
+            const pullNumber = Number(
+              context.eventName === "pull_request_target"
+                ? context.payload.pull_request.number
+                : context.eventName === "issue_comment"
+                  ? context.payload.issue.number
+                  : context.payload.inputs?.pull_request,
+            );
+            if (!Number.isSafeInteger(pullNumber) || pullNumber <= 0) {
+              core.setFailed("A valid pull-request number is required.");
+              emit([]);
+              return;
+            }
+            if (context.eventName === "issue_comment") {
+              if (!(await hasWriteAccess(context.actor))) {
+                core.notice("Ignoring a gate command from an actor without write access.");
+                emit([]);
+                return;
+              }
+            }
+            emit([pullNumber]);
+
+  reconcile:
+    name: Reconcile CodeRabbit approval
+    needs: route
+    if: needs.route.outputs.has_pull_requests == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        pull_request: ${{ fromJSON(needs.route.outputs.pull_requests) }}
+    runs-on: ubuntu-latest
     environment: coderabbit-gate
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
       - name: Mint the dedicated gate token
         id: gate-token
@@ -44,6 +215,7 @@ jobs:
         with:
           client-id: ${{ vars.ALITYCS_CODERABBIT_GATE_CLIENT_ID }}
           private-key: ${{ secrets.ALITYCS_CODERABBIT_GATE_PRIVATE_KEY }}
+          permission-actions: read
           permission-checks: write
           permission-contents: read
           permission-pull-requests: read
@@ -51,12 +223,23 @@ jobs:
       - name: Publish the current-head gate
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
+          GATE_APP_ID: ${{ vars.ALITYCS_CODERABBIT_GATE_APP_ID }}
           GATE_APP_SLUG: ${{ steps.gate-token.outputs.app-slug }}
+          PULL_REQUEST_NUMBER: ${{ matrix.pull_request }}
         with:
           github-token: ${{ steps.gate-token.outputs.token }}
           script: |
             const gateName = "Alitycs CodeRabbit Gate";
+            const policyPath = ".coderabbit.yaml";
             const gatePath = ".github/workflows/coderabbit-gate.yml";
+            const reviewSignalPath = ".github/workflows/coderabbit-review-event.yml";
+            const workflowsPath = ".github/workflows";
+            const protectedObjects = [
+              { path: policyPath, mode: "100644", type: "blob" },
+              { path: workflowsPath, mode: "040000", type: "tree" },
+            ];
+            const environmentName = "coderabbit-gate";
+            const gateAppId = Number(process.env.GATE_APP_ID);
             const gateAppSlug = process.env.GATE_APP_SLUG;
             const ignoredBots = new Set([
               "dependabot[bot]",
@@ -66,129 +249,324 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            if (!gateAppSlug) {
-              core.setFailed("The dedicated gate app slug is unavailable.");
+            if (!Number.isSafeInteger(gateAppId) || gateAppId <= 0 || !gateAppSlug) {
+              core.setFailed("The dedicated gate app identity is unavailable.");
               return;
             }
 
-            const loadPullRequest = async () => {
-              if (context.eventName === "pull_request_target") {
-                return context.payload.pull_request;
-              }
-              if (context.eventName === "check_run") {
-                const associated = await github.paginate(
-                  github.rest.repos.listPullRequestsAssociatedWithCommit,
-                  {
-                    owner,
-                    repo,
-                    commit_sha: context.payload.check_run.head_sha,
-                    per_page: 100,
-                  },
-                );
-                return associated.find(
-                  (pullRequest) =>
-                    pullRequest.state === "open" && pullRequest.base.ref === "main",
-                );
-              }
+            const errorMessage = (error) =>
+              error instanceof Error ? error.message : String(error);
 
-              const pullNumber = Number(
-                context.eventName === "issue_comment"
-                  ? context.payload.issue.number
-                  : context.payload.inputs?.pull_request,
-              );
-              if (!Number.isSafeInteger(pullNumber) || pullNumber <= 0) {
-                return undefined;
-              }
-              if (context.eventName === "issue_comment") {
-                try {
-                  const permission = await github.rest.repos.getCollaboratorPermissionLevel({
-                    owner,
-                    repo,
-                    username: context.actor,
-                  });
-                  if (!["admin", "maintain", "write"].includes(permission.data.permission)) {
-                    core.notice("Ignoring a gate command from an actor without write access.");
-                    return undefined;
-                  }
-                } catch (error) {
-                  if (error.status !== 404) throw error;
-                  core.notice("Ignoring a gate command from a non-collaborator.");
-                  return undefined;
-                }
-              }
-              return (await github.rest.pulls.get({ owner, repo, pull_number: pullNumber })).data;
-            };
-
-            const pullRequest = await loadPullRequest();
-            if (
-              !pullRequest ||
-              pullRequest.state !== "open" ||
-              pullRequest.draft ||
-              pullRequest.base.ref !== "main"
-            ) {
-              core.notice("No open, ready pull request targeting main needs reconciliation.");
-              return;
-            }
-
-            const pullNumber = pullRequest.number;
-            const headSha = pullRequest.head.sha;
-            const author = pullRequest.user.login;
-            let checkRunId;
-
-            const finish = async (conclusion, title, summary) => {
-              if (!checkRunId) return;
-              await github.rest.checks.update({
-                owner,
-                repo,
-                check_run_id: checkRunId,
-                status: "completed",
-                conclusion,
-                completed_at: new Date().toISOString(),
-                output: { title, summary },
-              });
-            };
-
-            try {
-              const created = await github.rest.checks.create({
-                owner,
-                repo,
-                name: gateName,
-                head_sha: headSha,
-                status: "in_progress",
-                started_at: new Date().toISOString(),
-                details_url: `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`,
-                external_id:
-                  `alitycs-coderabbit-gate/v1:${pullNumber}:${headSha}:` +
-                  `${context.runId}:${context.runAttempt}`,
-                output: {
-                  title: "Waiting for current-head approval",
-                  summary: ignoredBots.has(author)
-                    ? "This ignored bot pull request needs a current-head approval from a human maintainer."
-                    : "This human-authored pull request needs a current-head CodeRabbit approval.",
-                },
-              });
-              checkRunId = created.data.id;
-
-              const files = await github.paginate(github.rest.pulls.listFiles, {
-                owner,
-                repo,
-                pull_number: pullNumber,
-                per_page: 100,
-              });
+            const reconcile = async (pullRequest) => {
               if (
-                files.some(
-                  (file) => file.filename === gatePath || file.previous_filename === gatePath,
-                )
+                !pullRequest ||
+                pullRequest.state !== "open" ||
+                pullRequest.draft ||
+                pullRequest.base.ref !== "main"
               ) {
-                const message =
-                  "The trusted gate workflow cannot be changed by an ordinary pull request. " +
-                  "Use the documented two-phase gate upgrade procedure.";
-                await finish("failure", "Protected gate workflow changed", message);
-                core.setFailed(message);
+                core.notice("Skipping a pull request that is not open, ready, and based on main.");
                 return;
               }
 
-              const hasCurrentApproval = async () => {
+              const pullNumber = pullRequest.number;
+              const headSha = pullRequest.head.sha;
+              const author = pullRequest.user.login;
+              const externalId =
+                `alitycs-coderabbit-gate/v8:${pullNumber}:${headSha}:` +
+                `${context.runId}:${context.runAttempt}`;
+              const detailsUrl =
+                `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
+              let checkRunId;
+
+              const listOwnedGateChecks = async () =>
+                (
+                  await github.paginate(github.rest.checks.listForRef, {
+                    owner,
+                    repo,
+                    ref: headSha,
+                    check_name: gateName,
+                    filter: "all",
+                    app_id: gateAppId,
+                    per_page: 100,
+                  })
+                ).filter(
+                  (checkRun) =>
+                    checkRun.name === gateName &&
+                    checkRun.head_sha === headSha &&
+                    checkRun.app?.id === gateAppId &&
+                    checkRun.app?.slug === gateAppSlug,
+                );
+
+              const ownsCanonicalCheck = async () => {
+                if (!checkRunId) return false;
+                const stableChecks = await listOwnedGateChecks();
+                if (stableChecks.length !== 1 || stableChecks[0].id !== checkRunId) {
+                  core.notice(
+                    "A newer reconciliation is normalizing the exact-head gate check.",
+                  );
+                  return false;
+                }
+                const current = await github.rest.checks.get({
+                  owner,
+                  repo,
+                  check_run_id: checkRunId,
+                });
+                const ownsClaim =
+                  current.data.name === gateName &&
+                  current.data.head_sha === headSha &&
+                  current.data.app?.id === gateAppId &&
+                  current.data.app?.slug === gateAppSlug &&
+                  current.data.external_id === externalId;
+                if (!ownsClaim) {
+                  core.notice("A newer reconciliation owns the exact-head gate check.");
+                }
+                return ownsClaim;
+              };
+
+              const finish = async (conclusion, title, summary) => {
+                if (!(await ownsCanonicalCheck())) return false;
+                await github.rest.checks.update({
+                  owner,
+                  repo,
+                  check_run_id: checkRunId,
+                  external_id: externalId,
+                  status: "completed",
+                  conclusion,
+                  completed_at: new Date().toISOString(),
+                  output: { title, summary },
+                });
+                return true;
+              };
+
+              try {
+                const pendingOutput = {
+                  title: "Evaluating current-head approval",
+                  summary: ignoredBots.has(author)
+                    ? "This ignored bot pull request needs a current-head approval from a human maintainer."
+                    : "This human-authored pull request needs a current-head CodeRabbit approval.",
+                };
+
+                let ownedChecks = await listOwnedGateChecks();
+                if (ownedChecks.length === 0) {
+                  const created = await github.rest.checks.create({
+                    owner,
+                    repo,
+                    name: gateName,
+                    head_sha: headSha,
+                    status: "in_progress",
+                    started_at: new Date().toISOString(),
+                    details_url: detailsUrl,
+                    external_id: externalId,
+                    output: pendingOutput,
+                  });
+                  const byId = new Map(
+                    (await listOwnedGateChecks()).map((checkRun) => [checkRun.id, checkRun]),
+                  );
+                  byId.set(created.data.id, created.data);
+                  ownedChecks = [...byId.values()];
+                }
+                ownedChecks.sort((left, right) => left.id - right.id);
+                checkRunId = ownedChecks[0].id;
+
+                await Promise.all(
+                  ownedChecks.map((checkRun) =>
+                    github.rest.checks.update({
+                      owner,
+                      repo,
+                      check_run_id: checkRun.id,
+                      external_id: externalId,
+                      status: "in_progress",
+                      started_at: new Date().toISOString(),
+                      details_url: detailsUrl,
+                      output: pendingOutput,
+                    }),
+                  ),
+                );
+                await Promise.all(
+                  ownedChecks.slice(1).map((checkRun) =>
+                    github.rest.checks.update({
+                      owner,
+                      repo,
+                      check_run_id: checkRun.id,
+                      name: `${gateName} (superseded ${checkRun.id})`,
+                      status: "completed",
+                      conclusion: "neutral",
+                      completed_at: new Date().toISOString(),
+                      output: {
+                        title: "Superseded duplicate gate check",
+                        summary: "The oldest App-owned check is the canonical exact-head gate.",
+                      },
+                    }),
+                  ),
+                );
+                if (!(await ownsCanonicalCheck())) return;
+
+                const baseSha = (
+                  await github.rest.git.getRef({
+                    owner,
+                    repo,
+                    ref: "heads/main",
+                  })
+                ).data.object.sha;
+                if (!/^[0-9a-f]{40}$/.test(baseSha)) {
+                  throw new Error("The current main ref did not resolve to a commit SHA.");
+                }
+
+                const environment = await github.rest.repos.getEnvironment({
+                  owner,
+                  repo,
+                  environment_name: environmentName,
+                });
+                const deploymentPolicy = environment.data.deployment_branch_policy;
+                const branchPolicies = await github.paginate(
+                  github.rest.repos.listDeploymentBranchPolicies,
+                  {
+                    owner,
+                    repo,
+                    environment_name: environmentName,
+                    per_page: 100,
+                  },
+                );
+                const isMainOnly =
+                  deploymentPolicy?.protected_branches === false &&
+                  deploymentPolicy?.custom_branch_policies === true &&
+                  branchPolicies.length === 1 &&
+                  branchPolicies[0].name === "main" &&
+                  (!branchPolicies[0].type || branchPolicies[0].type === "branch");
+                if (!isMainOnly) {
+                  const message =
+                    "The coderabbit-gate environment must allow exactly the main branch.";
+                  if (await finish("failure", "Unsafe gate environment policy", message)) {
+                    core.setFailed(message);
+                  }
+                  return;
+                }
+
+                const commitTrees = new Map();
+                const trees = new Map();
+                const loadTree = async (treeSha) => {
+                  if (!trees.has(treeSha)) {
+                    const response = await github.rest.git.getTree({
+                      owner,
+                      repo,
+                      tree_sha: treeSha,
+                    });
+                    if (response.data.truncated) {
+                      throw new Error(`Git tree ${treeSha} was truncated.`);
+                    }
+                    trees.set(treeSha, response.data.tree);
+                  }
+                  return trees.get(treeSha);
+                };
+                const objectIdentity = async (path, ref, expectedMode, expectedType) => {
+                  try {
+                    if (!commitTrees.has(ref)) {
+                      commitTrees.set(
+                        ref,
+                        (
+                          await github.rest.git.getCommit({
+                            owner,
+                            repo,
+                            commit_sha: ref,
+                          })
+                        ).data.tree.sha,
+                      );
+                    }
+                    let treeSha = commitTrees.get(ref);
+                    const segments = path.split("/");
+                    for (const [index, segment] of segments.entries()) {
+                      const entry = (await loadTree(treeSha)).find(
+                        (candidate) => candidate.path === segment,
+                      );
+                      if (!entry) return undefined;
+                      if (index === segments.length - 1) {
+                        return entry.type === expectedType && entry.mode === expectedMode
+                          ? `${entry.mode}:${entry.type}:${entry.sha}`
+                          : undefined;
+                      }
+                      if (entry.type !== "tree" || entry.mode !== "040000") {
+                        return undefined;
+                      }
+                      treeSha = entry.sha;
+                    }
+                    return undefined;
+                  } catch (error) {
+                    if (error.status === 404 || error.status === 409) return undefined;
+                    throw error;
+                  }
+                };
+                const changedProtectedPaths = [];
+                for (const { path, mode, type } of protectedObjects) {
+                  const [baseIdentity, headIdentity] = await Promise.all([
+                    objectIdentity(path, baseSha, mode, type),
+                    objectIdentity(path, headSha, mode, type),
+                  ]);
+                  if (!baseIdentity || baseIdentity !== headIdentity) {
+                    changedProtectedPaths.push(path);
+                  }
+                }
+                if (changedProtectedPaths.length > 0) {
+                  const message =
+                    "Protected policy or workflow tree differs from the trusted base: " +
+                    changedProtectedPaths.join(", ") +
+                    `. Current main is ${baseSha}. Use the documented two-phase gate ` +
+                    "upgrade procedure.";
+                  if (await finish("failure", "Protected gate boundary changed", message)) {
+                    core.setFailed(message);
+                  }
+                  return;
+                }
+
+                const openMainPullRequests = await github.paginate(
+                  github.rest.pulls.list,
+                  {
+                    owner,
+                    repo,
+                    state: "open",
+                    base: "main",
+                    per_page: 100,
+                  },
+                );
+                const sameHeadPullRequests = openMainPullRequests.filter(
+                  (candidate) => candidate.head.sha === headSha,
+                );
+                if (
+                  sameHeadPullRequests.length !== 1 ||
+                  sameHeadPullRequests[0].number !== pullNumber
+                ) {
+                  const message =
+                    "The head commit must belong to exactly one open pull request targeting main.";
+                  if (await finish("failure", "Ambiguous pull-request head", message)) {
+                    core.setFailed(message);
+                  }
+                  return;
+                }
+
+                const currentPullRequest = (
+                  await github.rest.pulls.get({ owner, repo, pull_number: pullNumber })
+                ).data;
+                const currentMainSha = (
+                  await github.rest.git.getRef({
+                    owner,
+                    repo,
+                    ref: "heads/main",
+                  })
+                ).data.object.sha;
+                if (
+                  currentPullRequest.state !== "open" ||
+                  currentPullRequest.draft ||
+                  currentPullRequest.base.ref !== "main" ||
+                  currentPullRequest.head.sha !== headSha ||
+                  currentMainSha !== baseSha
+                ) {
+                  const message =
+                    "The pull request changed while its exact-head approval was evaluated.";
+                  if (await finish("failure", "Pull request changed during evaluation", message)) {
+                    core.setFailed(message);
+                  }
+                  return;
+                }
+
                 const reviews = await github.paginate(github.rest.pulls.listReviews, {
                   owner,
                   repo,
@@ -212,54 +590,75 @@ jobs:
                   latestByReviewer.set(review.user.login, review);
                 }
 
+                let approved = false;
                 if (ignoredBots.has(author)) {
                   for (const review of latestByReviewer.values()) {
                     if (review.state !== "APPROVED" || review.user.login.endsWith("[bot]")) {
                       continue;
                     }
                     try {
-                      const permission = await github.rest.repos.getCollaboratorPermissionLevel({
-                        owner,
-                        repo,
-                        username: review.user.login,
-                      });
+                      const permission =
+                        await github.rest.repos.getCollaboratorPermissionLevel({
+                          owner,
+                          repo,
+                          username: review.user.login,
+                        });
                       if (["admin", "maintain", "write"].includes(permission.data.permission)) {
-                        return true;
+                        approved = true;
+                        break;
                       }
                     } catch (error) {
                       if (error.status !== 404) throw error;
                     }
                   }
-                  return false;
+                } else {
+                  approved =
+                    latestByReviewer.get("coderabbitai[bot]")?.state === "APPROVED";
                 }
 
-                return latestByReviewer.get("coderabbitai[bot]")?.state === "APPROVED";
-              };
-
-              for (let attempt = 1; attempt <= 30; attempt += 1) {
-                if (await hasCurrentApproval()) {
+                if (approved) {
                   const summary = ignoredBots.has(author)
                     ? "A human maintainer approved this ignored bot pull request at the current head."
                     : "CodeRabbit approved this human-authored pull request at the current head.";
                   await finish("success", "Current-head approval verified", summary);
                   return;
                 }
-                if (attempt < 30) {
-                  core.info(`Approval is not current yet (attempt ${attempt}/30); retrying.`);
-                  await new Promise((resolve) => setTimeout(resolve, 20_000));
-                }
-              }
 
-              const message = ignoredBots.has(author)
-                ? "Ignored bot pull requests require a current-head human maintainer approval."
-                : "Human-authored pull requests require a current-head CodeRabbit approval.";
-              await finish("failure", "Current-head approval missing", message);
-              core.setFailed(message);
+                const message = ignoredBots.has(author)
+                  ? "Ignored bot pull requests require a current-head human maintainer approval."
+                  : "Human-authored pull requests require a current-head CodeRabbit approval.";
+                if (await finish("failure", "Current-head approval missing", message)) {
+                  core.setFailed(message);
+                }
+              } catch (error) {
+                core.error(`Gate evaluator error: ${errorMessage(error)}`);
+                try {
+                  const published = await finish(
+                    "failure",
+                    "Gate evaluator failed closed",
+                    "The trusted evaluator could not verify approval. Inspect the workflow logs.",
+                  );
+                  if (!published) {
+                    core.error("The evaluator error could not claim the canonical gate check.");
+                  }
+                } catch (finishError) {
+                  core.error(`Gate failure publication also failed: ${errorMessage(finishError)}`);
+                }
+                core.setFailed("The trusted CodeRabbit gate failed closed.");
+              }
+            };
+
+            try {
+              const pullNumber = Number(process.env.PULL_REQUEST_NUMBER);
+              if (!Number.isSafeInteger(pullNumber) || pullNumber <= 0) {
+                core.setFailed("The trusted router did not provide a valid pull request.");
+                return;
+              }
+              const pullRequest = (
+                await github.rest.pulls.get({ owner, repo, pull_number: pullNumber })
+              ).data;
+              await reconcile(pullRequest);
             } catch (error) {
-              await finish(
-                "failure",
-                "Gate evaluator failed closed",
-                "The trusted evaluator could not verify approval. Inspect the workflow logs.",
-              );
-              core.setFailed("The trusted CodeRabbit gate failed closed.");
+              core.error(`Gate setup error: ${errorMessage(error)}`);
+              core.setFailed("The trusted CodeRabbit gate could not load its pull request.");
             }

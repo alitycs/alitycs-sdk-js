@@ -1,0 +1,19 @@
+name: CodeRabbit review event
+
+on:
+  pull_request_review:
+    types: [submitted, dismissed]
+
+# This unprivileged workflow turns review-state changes into a workflow_run event. The trusted
+# gate consumes only that event as a wake-up signal and re-reads all authorization data itself.
+permissions: {}
+
+jobs:
+  signal:
+    name: Signal trusted gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Complete the unprivileged signal
+        shell: bash
+        run: ":"

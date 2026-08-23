@@ -36,9 +36,10 @@ reviews:
       instructions: >-
         Review for correctness, security, backward compatibility, and sufficient focused tests.
         Flag undocumented user-visible behavior and dependency or workflow changes that weaken
-        reproducibility, least privilege, or supply-chain safety. GitHub Actions must be pinned to
-        immutable commit SHAs. Treat formatting-only preferences as non-blocking when automation
-        already enforces them.
+        reproducibility, least privilege, or supply-chain safety. GitHub Actions and reusable
+        workflows must use full immutable commit SHAs; Docker actions must use immutable SHA-256
+        digests. Treat formatting-only preferences as non-blocking when automation already
+        enforces them.
     - path: "sdks/core/src/**"
       instructions: >-
         Preserve the public TypeScript API and the POST /events wire contract. The SDK accepts
@@ -76,16 +77,33 @@ reviews:
       instructions: >-
         Block changes that disable automatic review, request-changes behavior, exact-head gating,
         or the ignored-bot policy. Require live-schema validation for every configuration change.
+        This file is part of the exact-blob trust boundary and changes only through the documented
+        two-phase policy and gate upgrade procedure.
     - path: ".github/workflows/coderabbit-gate.yml"
       instructions: >-
-        This is a protected trust boundary. It must run from pull_request_target without checking
-        out or executing pull-request code, use only the main-restricted coderabbit-gate
-        environment, and publish through the dedicated Alitycs Gate app. Ordinary pull requests
-        must not alter this file.
+        This is a protected trust boundary. It must run only from trusted main-branch push,
+        pull_request_target, canonical workflow_run, maintainer-command, or manual events without
+        checking out or executing pull-request code. Keep the coderabbit-gate environment
+        restricted to main, verify the policy blob and complete workflow tree against the current
+        main ref, reconcile reviews from the API, avoid repository-global concurrency keys, and
+        publish a fresh evaluation through one canonical exact-head check owned by the dedicated
+        Alitycs Gate app. Normalize duplicate App-owned checks before success. Ordinary pull
+        requests must not alter this file.
+    - path: ".github/workflows/coderabbit-review-event.yml"
+      instructions: >-
+        Keep this review-state signal unprivileged: pull_request_review submitted/dismissed only,
+        no checkout, secrets, environment, artifacts, outputs, concurrency, or use of pull-request
+        data. The trusted gate must treat its workflow_run completion only as a wake-up signal and
+        accept that signal only from CodeRabbit or a current write-level collaborator, then re-read
+        all pull requests, reviews, workflow identities, and permissions from GitHub.
     - path: ".github/workflows/**"
       instructions: >-
-        Keep permissions least-privileged, actions pinned to full immutable commit SHAs, CI
-        deterministic, and releases gated on the complete verification and package-integrity suite.
+        This entire tree is an exact protected boundary because required Actions checks are bound
+        by app and job name, not workflow identity. Ordinary pull requests must not change or add
+        workflows. Use the documented two-phase upgrade procedure. Keep permissions
+        least-privileged, GitHub and reusable actions pinned to full commit SHAs, Docker actions
+        pinned to SHA-256 digests, CI deterministic, and releases gated on the complete verification
+        and package-integrity suite.
 
   auto_review:
     enabled: true
@@ -100,7 +118,7 @@ reviews:
   pre_merge_checks:
     override_requested_reviewers_only: true
     docstrings:
-      mode: off
+      mode: "off"
     title:
       mode: warning
       requirements: Use a concise, imperative title that describes the behavior changed.
