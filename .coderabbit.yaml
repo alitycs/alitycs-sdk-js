@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+inheritance: true
+
+reviews:
+  path_filters:
+    - "!node_modules/**"
+    - "!**/dist/**"
+    - "!**/coverage/**"
+    - "!**/*.min.js"
+  path_instructions:
+    - path: "sdks/core/src/**"
+      instructions: >-
+        Preserve the public TypeScript API and the POST /events wire contract. The SDK accepts
+        publishable keys only and must never accept or expose Tinybird credentials. Verify
+        organization, workspace, event, user, anonymous, and session identity semantics. Retries
+        must preserve event_id and the original timestamp, avoid duplicate logical events, respect
+        bounded backoff and batching, and remain safe during flush and shutdown. Require focused
+        unit and integration tests for behavioral changes.
+    - path: "sdks/browser/src/**"
+      instructions: >-
+        Review browser lifecycle, unload/pagehide delivery, auto-capture privacy, singleton state,
+        and SSR or non-DOM safety. Preserve publishable-key-only authentication, bundle-size
+        budgets, tree shaking, supported browser behavior, and the documented public API.
+    - path: "sdks/browser-snippet/src/**"
+      instructions: >-
+        Preserve pre-load queue ordering, loader idempotence, initialization timing, CSP-friendly
+        behavior, configuration validation, and a small browser footprint. Never expose secrets or
+        route browser traffic to tenant-scoped analytics read APIs.
+    - path: "specs/event-schema.json"
+      instructions: >-
+        Treat this as a cross-SDK and worker compatibility boundary. Block uncoordinated breaking
+        changes, relaxed identity requirements, mutable timestamp semantics, or schema drift that
+        is not covered by conformance tests and migration notes.
+    - path: "sdks/**/tests/**"
+      instructions: >-
+        Keep tests deterministic and offline. Cover retries, duplicate prevention, timestamp and
+        identity preservation, lifecycle cleanup, public API compatibility, and error paths
+        affected by the change.
+    - path: "**/package.json"
+      instructions: >-
+        Check dependency necessity, exact public entry points, side-effects and tree-shaking
+        behavior, supported runtimes, bundle impact, and release-script safety.
+    - path: ".github/workflows/**"
+      instructions: >-
+        Keep permissions least-privileged, actions pinned to full immutable commit SHAs, CI
+        deterministic, and releases gated on the complete verification and package-integrity suite.

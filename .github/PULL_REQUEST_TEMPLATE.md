@@ -16,3 +16,7 @@ Describe the user-visible change and why it is needed.
 - [ ] `bun run format:check`
 - [ ] `bun run test:all`
 - [ ] `bun run build:all`
+- [ ] CodeRabbit reviewed the latest pushed commit (human-authored pull requests).
+
+CodeRabbit automatically re-reviews new commits. Dependabot, Renovate, and GitHub Actions bot pull
+requests are intentionally excluded and require one human approval plus the normal CI checks.
