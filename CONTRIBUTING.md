@@ -22,6 +22,7 @@ bun run lint:all
 bun run format:check
 bun run test:all
 bun run build:all
+./scripts/verify-workflow-pins.rb
 ./scripts/validate-coderabbit.sh
 ```
 

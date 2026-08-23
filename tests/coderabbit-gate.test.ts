@@ -1365,6 +1365,7 @@ describe("trusted CodeRabbit workflow", () => {
     expect(validator).toContain("requires CPython 3.11 through 3.14");
     expect(contributing).toContain("CPython 3.11 through 3.14");
     expect(contributing).not.toContain("Python 3.11 or newer");
+    expect(contributing).toContain("./scripts/verify-workflow-pins.rb");
     expect(validator).not.toMatch(
       /readonly (?:script_dir|repository_root)="\$\(/,
     );
@@ -1424,18 +1425,28 @@ describe("trusted CodeRabbit workflow", () => {
     const workflowNames = (await readdir(workflowDirectory)).filter((name) =>
       /\.ya?ml$/.test(name),
     );
-    const workflowCorpus = (
-      await Promise.all(
-        workflowNames.map((name) =>
-          Bun.file(join(workflowDirectory, name)).text(),
-        ),
-      )
-    ).join("\n");
+    const workflowTexts = await Promise.all(
+      workflowNames.map((name) =>
+        Bun.file(join(workflowDirectory, name)).text(),
+      ),
+    );
+    const workflowCorpus = workflowTexts.join("\n");
     const docs = await Bun.file("docs/coderabbit.md").text();
     const policy = await Bun.file(".coderabbit.yaml").text();
+    const runnerLabels = workflowTexts.flatMap((workflow) => {
+      const parsed = Bun.YAML.parse(workflow) as {
+        jobs?: Record<string, { "runs-on"?: unknown }>;
+      };
+      return Object.values(parsed.jobs ?? {}).flatMap((job) =>
+        job["runs-on"] === undefined ? [] : [job["runs-on"]],
+      );
+    });
 
     expect(workflowCorpus).not.toContain("ubuntu-latest");
-    expect(workflowCorpus.match(/runs-on: ubuntu-24\.04/g)?.length).toBe(8);
+    expect(runnerLabels.length).toBeGreaterThan(0);
+    for (const runnerLabel of runnerLabels) {
+      expect(runnerLabel).toBe("ubuntu-24.04");
+    }
     expect(docs).toContain("do not use a moving `*-latest` label");
     expect(policy).toContain("runner labels pinned to explicit OS versions");
   });
