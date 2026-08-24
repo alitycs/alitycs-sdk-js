@@ -51,13 +51,10 @@ for a changeset in `CHANGELOG.md` when a change affects consumers. By contributi
 your contribution is licensed under this repository's MIT License. Configure GitHub-verified commit
 signing if desired; commit signatures are optional and are not part of the required branch baseline.
 
-CodeRabbit automatically reviews ready, human-authored pull requests and may request changes for
-correctness, security, compatibility, or test gaps. The required `Alitycs CodeRabbit Gate` check
-verifies that its approval covers the latest pushed commit; pushing another commit triggers an
-incremental review. The complete standalone policy and trusted evaluator live in this repository;
-see [CodeRabbit review gate](docs/coderabbit.md) for operation and upgrade procedures.
-Dependabot, Renovate, and GitHub Actions bot pull requests are intentionally skipped and instead
-require the normal CI checks plus one current-head human maintainer approval. Review submissions
-and dismissals automatically reconcile the gate; comment `/coderabbit-gate` only to recover from
-a missed GitHub event. Administrators should use the documented protection override only as an
-incident break-glass measure and restore and verify the branch policy immediately afterward.
+CodeRabbit automatically reviews every ready pull request, including dependency updates, and may
+request changes for correctness, security, compatibility, or test gaps. It re-reviews each new
+commit and approves only after its blocking findings are resolved, the latest commit is reviewed,
+and configured pre-merge checks pass. GitHub requires CodeRabbit's native status together with the
+repository's deterministic CI checks. Changes to CodeRabbit policy, CODEOWNERS, validation scripts,
+or GitHub workflows also require owner review. See the repository-owned
+[CodeRabbit review policy](docs/coderabbit.md) for operation and rollout details.
