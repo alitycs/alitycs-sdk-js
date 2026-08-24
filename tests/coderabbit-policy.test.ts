@@ -100,6 +100,7 @@ describe("repository-owned CodeRabbit policy", () => {
       "/scripts/validate-coderabbit.sh @bulanovdm",
       "/scripts/verify-workflow-pins.rb @bulanovdm",
       "/docs/coderabbit.md @bulanovdm",
+      "/CONTRIBUTING.md @bulanovdm",
     ]) {
       expect(codeowners).toContain(protectedPath);
     }
