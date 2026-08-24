@@ -432,10 +432,6 @@ jq -e \
 ' <<<"$protection" >/dev/null ||
 	fail "main branch protection does not match the SDK gate policy"
 
-signature_policy="$(gh api "repos/$repository/branches/main/protection/required_signatures")"
-jq -e '.enabled == true' <<<"$signature_policy" >/dev/null ||
-	fail "signed commits are not required on main"
-
 current_remote_head="$(gh api "repos/$repository/git/ref/heads/main" --jq .object.sha)"
 [[ "$current_remote_head" == "$remote_head" ]] ||
 	fail "remote main changed during the audit; rerun against the new head"

@@ -1872,12 +1872,17 @@ jobs:
     expect(audit.match(/test\(\$sdk_pattern\)/g)?.length).toBe(2);
     expect(docs).toContain("lowercase alphanumeric name segments");
     expect(audit).toContain('--argjson require_gate "$require_gate"');
+    expect(audit).not.toContain("required_signatures");
     expect(audit).toContain('if [[ "${1:-}" == "--pre-restore" ]]');
     expect(docs).toContain(
       "./scripts/audit-coderabbit-github.sh --pre-restore",
     );
     const futureSdkSeedStep = docs.match(/2\. Add[\s\S]*?\n3\./)?.[0];
     expect(futureSdkSeedStep).toContain("scripts/audit-coderabbit-github.sh");
+    expect(docs).toContain(
+      "Commit\n   signing is optional and is not part of the required branch baseline.",
+    );
+    expect(docs).not.toContain("signature, history");
     expect(docs).toContain("run the same audit again without");
     expect(audit).toContain('fail "could not read the gate App ID"');
     for (const variable of [

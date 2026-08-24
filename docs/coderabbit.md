@@ -183,11 +183,12 @@ role changes, run `/coderabbit-gate` on open ignored-bot pull requests before me
    lowercase head SHA.
 7. Require those three checks with strict branch updates. While the gate is required, repeat the
    dismissal and fresh-approval transitions and verify the pull request becomes unmergeable and
-   mergeable respectively. Enforce protection for administrators,
-   signed commits, linear history, resolved conversations, stale-review dismissal, and last-push
-   approval; disallow force-pushes and deletion. Require one native approval and keep all review
-   bypass allowances empty. Confirm the canary reports that CodeRabbit's exact-head approval
-   satisfies the human-authored path before closing the bootstrap change.
+   mergeable respectively. Enforce protection for administrators, linear history, resolved
+   conversations, stale-review dismissal, and last-push approval; disallow force-pushes and
+   deletion. Require one native approval and keep all review bypass allowances empty. Commit
+   signing is optional and is not part of the required branch baseline. Confirm the canary reports
+   that CodeRabbit's exact-head approval satisfies the human-authored path before closing the
+   bootstrap change.
 8. Exercise the ignored-bot path: confirm the gate blocks a bot update, approve its exact head as a
    maintainer, reconcile the gate, then dismiss the test approval so the pull request is blocked
    again.
@@ -222,7 +223,7 @@ policy and workflow pair. After the canary succeeds, refresh
 `./scripts/audit-coderabbit-github.sh --pre-restore alitycs/alitycs-sdk-<name>`. Restore the
 app-bound required check only after that audit passes, then run the same audit again without
 `--pre-restore` to verify the final three-check protection. Never disable the surrounding CI,
-signature, history, conversation, force-push, or deletion protections.
+history, conversation, force-push, or deletion protections.
 
 For app-key rotation, add a new GitHub App private key, update the environment secret in every SDK,
 run a canary and refresh `ALITYCS_CODERABBIT_GATE_CANARY_SHA` in each repository, and only then
