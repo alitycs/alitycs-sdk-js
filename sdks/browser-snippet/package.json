@@ -9,9 +9,10 @@
     "README.md"
   ],
   "scripts": {
-    "build": "cd ../.. && bun run scripts/build-snippet-with-cdn.ts",
+    "build": "cd ../.. && bun run scripts/build-snippet-with-cdn.ts && cd sdks/browser-snippet && bun run build:types",
     "build:dev": "cd ../.. && bun run scripts/build-snippet-with-cdn.ts",
     "build:prod": "cd ../.. && bun run scripts/build-snippet-with-cdn.ts",
+    "build:types": "tsc -p tsconfig.build.json",
     "build:watch": "bun build src/snippet.ts --outfile=dist/snippet.js --target=browser --format=iife --sourcemap=inline --watch",
     "test": "bun run build:prod && bun test",
     "test:coverage": "bun run build:prod && bun test --coverage",
