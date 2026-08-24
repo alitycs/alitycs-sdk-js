@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "outDir": "./dist",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["bun-types"],
+    "paths": {
+      "@alitycs/core": ["../core/src/index.ts"]
+    }
+    // No react-family mappings, deliberately. bun installs every workspace
+    // package's react@19.x as a symlink into one shared store entry, so
+    // `sdks/nextjs/node_modules/react` and the copy @alitycs/react's dist
+    // loads are the SAME module by realpath — hooks share one dispatcher.
+    // The provider tests are the standing guard: a second React instance
+    // fails them immediately with "Invalid hook call"-class errors. If this
+    // workspace ever pins two different react versions, that is where it
+    // will surface; pin the copies with explicit paths again at that point.
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
