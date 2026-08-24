@@ -3,6 +3,7 @@
  */
 
 import type { SnippetConfig } from './types';
+import { DEFAULT_SDK_URL } from './build-constants';
 
 export class SDKLoader {
   private loaded = false;
@@ -127,7 +128,7 @@ export class SDKLoader {
       }
 
       const script = document.createElement('script');
-      script.src = this.config.sdkUrl || 'https://cdn.alitycs.com/sdk@2/browser.min.js';
+      script.src = this.config.sdkUrl || DEFAULT_SDK_URL;
       script.async = true;
       script.defer = true;
 

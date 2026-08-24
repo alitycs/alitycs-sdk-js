@@ -5,6 +5,7 @@
 import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { Window } from 'happy-dom';
 import { SDKLoader } from '../src/loader';
+import { DEFAULT_SDK_URL } from '../src/config';
 import { CallQueue } from '../src/queue';
 import type { SnippetConfig } from '../src/types';
 
@@ -95,7 +96,7 @@ describe('Edge Cases and Error Scenarios', () => {
       const { parseScriptConfig } = require('../src/config');
       const config = parseScriptConfig();
 
-      expect(config.sdkUrl).toBe('https://cdn.alitycs.com/sdk@2/browser.min.js');
+      expect(config.sdkUrl).toBe(DEFAULT_SDK_URL);
       expect(config.autoTrack).toBe(true);
       expect(config.debug).toBe(false);
       expect(config.endpoint).toBeUndefined();

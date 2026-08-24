@@ -3,11 +3,9 @@
  */
 
 import type { SnippetConfig } from './types';
+import { DEFAULT_SDK_URL } from './build-constants';
 
-/**
- * Default CDN URL for the full SDK
- */
-const DEFAULT_SDK_URL = 'https://cdn.alitycs.com/sdk@2/browser.min.js';
+export { DEFAULT_SDK_URL };
 
 /**
  * Parse configuration from the current script tag

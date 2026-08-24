@@ -9,9 +9,9 @@
     "README.md"
   ],
   "scripts": {
-    "build": "bun run build:dev && bun run build:prod",
-    "build:dev": "bun build src/snippet.ts --outfile=dist/snippet.js --target=browser --format=iife --sourcemap=inline",
-    "build:prod": "bun build src/snippet.ts --outfile=dist/snippet.min.js --target=browser --format=iife --minify",
+    "build": "cd ../.. && bun run scripts/build-snippet-with-cdn.ts",
+    "build:dev": "cd ../.. && bun run scripts/build-snippet-with-cdn.ts",
+    "build:prod": "cd ../.. && bun run scripts/build-snippet-with-cdn.ts",
     "build:watch": "bun build src/snippet.ts --outfile=dist/snippet.js --target=browser --format=iife --sourcemap=inline --watch",
     "test": "bun run build:prod && bun test",
     "test:coverage": "bun run build:prod && bun test --coverage",
