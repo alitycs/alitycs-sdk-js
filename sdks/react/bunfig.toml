@@ -1,0 +1,12 @@
+[test]
+coverage = true
+coverageThreshold = { lines = 0.90, functions = 0.85 }
+# The number should mean this package's own source, nothing else.
+coverageSkipTestFiles = true
+# Workspace links pull ../core and ../browser in through tsconfig paths;
+# without these patterns their files would inflate (or deflate) the report.
+coveragePathIgnorePatterns = [
+  "tests/**",
+  "../core/src/**",
+  "../browser/src/**",
+]
