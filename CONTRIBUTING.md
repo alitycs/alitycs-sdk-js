@@ -13,7 +13,8 @@ wire compatibility, runtime safety, and small browser footprint.
 
 ## Local setup
 
-Install Bun `1.3.14`, then run:
+Install Bun `1.3.14`, Bash, Git, jq, CPython 3.11 through 3.14, and Ruby 3.3 or newer,
+then run:
 
 ```bash
 bun install --frozen-lockfile
@@ -22,6 +23,8 @@ bun run lint:all
 bun run format:check
 bun run test:all
 bun run build:all
+./scripts/verify-workflow-pins.rb
+./scripts/validate-coderabbit.sh
 ```
 
 The coverage gate is 90% lines and 85% functions for every package. Tests must remain deterministic
@@ -45,4 +48,16 @@ Never commit credentials, customer data, generated `dist/` output, or local envi
 
 Describe the user-visible effect, compatibility impact, and commands you ran. Maintainers may ask
 for a changeset in `CHANGELOG.md` when a change affects consumers. By contributing, you agree that
-your contribution is licensed under this repository's MIT License.
+your contribution is licensed under this repository's MIT License. Configure GitHub-verified commit
+signing if desired; commit signatures are optional and are not part of the required branch baseline.
+
+CodeRabbit automatically reviews ready, human-authored pull requests and may request changes for
+correctness, security, compatibility, or test gaps. The required `Alitycs CodeRabbit Gate` check
+verifies that its approval covers the latest pushed commit; pushing another commit triggers an
+incremental review. The complete standalone policy and trusted evaluator live in this repository;
+see [CodeRabbit review gate](docs/coderabbit.md) for operation and upgrade procedures.
+Dependabot, Renovate, and GitHub Actions bot pull requests are intentionally skipped and instead
+require the normal CI checks plus one current-head human maintainer approval. Review submissions
+and dismissals automatically reconcile the gate; comment `/coderabbit-gate` only to recover from
+a missed GitHub event. Administrators should use the documented protection override only as an
+incident break-glass measure and restore and verify the branch policy immediately afterward.

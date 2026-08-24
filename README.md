@@ -80,7 +80,8 @@ The canonical payload contract is [event schema v0.4.0](specs/event-schema.json)
 
 ## Development
 
-Requirements: [Bun](https://bun.sh) `1.3.14`.
+Requirements: [Bun](https://bun.sh) `1.3.14`, Bash, Git, jq, CPython 3.11 through 3.14,
+and Ruby 3.3 or newer.
 
 ```bash
 bun install --frozen-lockfile
@@ -96,13 +97,16 @@ on GitHub Actions.
 
 ## Releases
 
-Pushing an annotated `vMAJOR.MINOR.PATCH` tag runs the release workflow. It verifies every package
-version matches the tag, runs the complete test and build suite, creates attested package tarballs
-with SHA-256 checksums, and publishes a GitHub Release. See [Releasing](docs/RELEASING.md).
+Pushing an annotated `vMAJOR.MINOR.PATCH` or `vMAJOR.MINOR.PATCH-PRERELEASE` tag runs the release
+workflow. It rejects tag commits outside reviewed `main` history, verifies every package version
+against the full tag, runs the complete test and build suite without release credentials, then
+creates attested package tarballs with SHA-256 checksums and publishes a GitHub Release. See
+[Releasing](docs/RELEASING.md). Stable and prerelease examples are `v1.1.0` and `v1.1.0-rc.1`.
 
 ## Community and security
 
 - [Contributing](CONTRIBUTING.md)
+- [CodeRabbit review gate](docs/coderabbit.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Security policy](SECURITY.md)
 - [Support](SUPPORT.md)

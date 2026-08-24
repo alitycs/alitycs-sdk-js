@@ -1,0 +1,199 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+tone_instructions: >-
+  Be concise, specific, and constructive. Prioritize defects that can affect correctness,
+  security, compatibility, operability, or maintainability. Avoid stylistic comments already
+  enforced by repository tooling and do not repeat the same finding.
+early_access: false
+enable_free_tier: true
+
+reviews:
+  profile: chill
+  request_changes_workflow: true
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  high_level_summary_instructions: >-
+    Summarize behavioral impact, compatibility risk, security implications, and validation.
+  poem: false
+  in_progress_fortune: false
+  review_status: true
+  review_progress: true
+  fail_commit_status: true
+  changed_files_summary: true
+  collapse_walkthrough: false
+  sequence_diagrams: false
+  suggested_labels: false
+  suggested_reviewers: false
+  auto_apply_labels: false
+  auto_assign_reviewers: false
+  assess_linked_issues: false
+  related_issues: false
+  related_prs: false
+  enable_prompt_for_ai_agents: false
+
+  path_instructions:
+    - path: "**/*"
+      instructions: >-
+        Review for correctness, security, backward compatibility, and sufficient focused tests.
+        Flag undocumented user-visible behavior and dependency or workflow changes that weaken
+        reproducibility, least privilege, or supply-chain safety. GitHub Actions and reusable
+        workflows must use full immutable commit SHAs. Docker actions must use immutable SHA-256
+        digests; workflow job container and service images must use literal lowercase registry
+        references pinned to full SHA-256 digests. Reject YAML merge keys (`<<`) anywhere in
+        workflow or action metadata; GitHub Actions does not support them, and they can hide
+        references from structural verification. Every non-reusable workflow job must resolve to
+        exactly one scalar, explicitly versioned GitHub-hosted runs-on label; direct scalar aliases
+        are allowed, while reusable-workflow jobs with `uses` may omit it. Reject floating,
+        dynamic, self-hosted, missing, duplicate, or non-scalar labels. Treat formatting-only
+        preferences as non-blocking when automation already enforces them.
+    - path: "sdks/core/src/**"
+      instructions: >-
+        Preserve the public TypeScript API and the POST /events wire contract. The SDK accepts
+        publishable keys only and must never accept or expose Tinybird credentials. Verify
+        organization, workspace, event, user, anonymous, and session identity semantics. Retries
+        must preserve event_id and the original timestamp, avoid duplicate logical events, respect
+        bounded backoff and batching, and remain safe during flush and shutdown. Require focused
+        unit and integration tests for behavioral changes.
+    - path: "sdks/browser/src/**"
+      instructions: >-
+        Review browser lifecycle, unload/pagehide delivery, auto-capture privacy, singleton state,
+        and SSR or non-DOM safety. Preserve publishable-key-only authentication, bundle-size
+        budgets, tree shaking, supported browser behavior, and the documented public API.
+    - path: "sdks/browser-snippet/src/**"
+      instructions: >-
+        Preserve pre-load queue ordering, loader idempotence, initialization timing, CSP-friendly
+        behavior, configuration validation, and a small browser footprint. Never expose secrets or
+        route browser traffic to tenant-scoped analytics read APIs.
+    - path: "specs/event-schema.json"
+      instructions: >-
+        Treat this as a cross-SDK and worker compatibility boundary. Block uncoordinated breaking
+        changes, relaxed identity requirements, mutable timestamp semantics, or schema drift that
+        is not covered by conformance tests and migration notes.
+    - path: "sdks/**/tests/**"
+      instructions: >-
+        Keep tests deterministic and offline. Cover retries, duplicate prevention, timestamp and
+        identity preservation, lifecycle cleanup, public API compatibility, and error paths
+        affected by the change.
+    - path: "**/package.json"
+      instructions: >-
+        Check dependency necessity, exact public entry points, side-effects and tree-shaking
+        behavior, supported runtimes, bundle impact, and release-script safety. Treat lockfile
+        changes as supply-chain-sensitive and ensure they match the manifest change.
+    - path: ".coderabbit.yaml"
+      instructions: >-
+        Block changes that disable automatic review, request-changes behavior, exact-head gating,
+        or the ignored-bot policy. Require pinned-schema validation for every configuration change
+        and keep the scheduled live-schema drift check non-gating. This file is part of the
+        exact-blob trust boundary and changes only through the documented two-phase policy and gate
+        upgrade procedure.
+    - path: ".github/workflows/coderabbit-gate.yml"
+      instructions: >-
+        This is a protected trust boundary. It must run only from trusted main-branch push,
+        pull_request_target, canonical workflow_run, maintainer-command, or manual events without
+        checking out or executing pull-request code. Keep the coderabbit-gate environment
+        restricted to main. Use a separate Octokit client authenticated by an owner-scoped,
+        Contents-read token to verify that the selected Gate App installation contains the current
+        repository and only active, public, independent alitycs-sdk-* repositories on main; recheck
+        that selection before reading reviews and immediately before a conclusion. Verify the
+        policy blob and complete workflow tree against the current main ref, reconcile reviews from
+        the API, and avoid repository-global concurrency keys. Rename prior canonical checks to
+        unique neutral superseded names, create a fresh exact-head check owned by the dedicated
+        Alitycs Gate app, and normalize concurrent duplicates before any conclusion. Initial SDK
+        bootstrap follows the documented seed procedure; after that baseline is on main, ordinary
+        pull requests must not alter this file.
+    - path: ".github/workflows/coderabbit-review-event.yml"
+      instructions: >-
+        Keep this review-state signal unprivileged: pull_request_review submitted/dismissed only,
+        no checkout, secrets, environment, artifacts, outputs, concurrency, or use of pull-request
+        data. The trusted gate must treat its workflow_run completion only as a wake-up signal and
+        accept that signal only from CodeRabbit or a current write-level collaborator, then re-read
+        all pull requests, reviews, workflow identities, and permissions from GitHub.
+    - path: ".github/workflows/release.yml"
+      instructions: >-
+        Do not add an Actions concurrency key. Concurrency groups are repository-global, so a
+        pull-request-controlled workflow could reserve the release group's name and block tag
+        publication. Preserve immutable release tags, the fresh pre-publication tag-identity
+        recheck, and immutable tag and version publication identities as duplicate-release
+        defenses.
+    - path: ".github/workflows/**"
+      instructions: >-
+        This entire tree is an exact protected boundary because required Actions checks are bound
+        by app and job name, not workflow identity. Initial SDK bootstrap follows the documented
+        seed procedure. After that baseline is on main, ordinary pull requests must not change or
+        add workflows; use the documented two-phase upgrade procedure. Keep permissions
+        least-privileged, GitHub and reusable actions pinned to full commit SHAs, and Docker actions
+        pinned to SHA-256 digests. Require every non-reusable job to resolve to exactly one scalar,
+        explicitly versioned GitHub-hosted runner label; direct scalar aliases are allowed, while
+        reusable-workflow jobs with `uses` may omit it. Reject `*-latest`, expressions, self-hosted
+        labels, missing or duplicate declarations, and non-scalar forms. Workflow container and
+        service images must be literal lowercase registry references pinned to full SHA-256
+        digests. Reject YAML merge keys (`<<`) everywhere while continuing to resolve ordinary
+        anchors and aliases structurally. CI must stay deterministic, and releases must be gated on
+        the complete verification and package-integrity suite.
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 0
+    drafts: false
+    ignore_usernames:
+      - "dependabot[bot]"
+      - "renovate[bot]"
+      - "github-actions[bot]"
+
+  pre_merge_checks:
+    override_requested_reviewers_only: true
+    docstrings:
+      mode: "off"
+    title:
+      mode: warning
+      requirements: Use a concise, imperative title that describes the behavior changed.
+    description:
+      mode: warning
+    issue_assessment:
+      mode: warning
+
+  tools:
+    github-checks:
+      enabled: true
+
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+    simplify:
+      enabled: false
+    autofix:
+      enabled: false
+    fix_ci:
+      enabled: false
+    resolve_merge_conflict:
+      enabled: false
+    custom: []
+
+  post_merge_actions: []
+
+chat:
+  allow_non_org_members: false
+  art: false
+  auto_reply: true
+
+knowledge_base:
+  opt_out: true
+  web_search:
+    enabled: false
+  automatic_repository_linking: false
+  linked_repositories: []
+
+issue_enrichment:
+  auto_enrich:
+    enabled: false
+  planning:
+    enabled: false
+    auto_planning:
+      enabled: false
+      labels: []
+  labeling:
+    labeling_instructions: []
+    auto_apply_labels: false
