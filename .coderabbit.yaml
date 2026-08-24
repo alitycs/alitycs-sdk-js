@@ -81,33 +81,15 @@ reviews:
         changes as supply-chain-sensitive and ensure they match the manifest change.
     - path: ".coderabbit.yaml"
       instructions: >-
-        Block changes that disable automatic review, request-changes behavior, exact-head gating,
-        or the ignored-bot policy. Require pinned-schema validation for every configuration change
-        and keep the scheduled live-schema drift check non-gating. This file is part of the
-        exact-blob trust boundary and changes only through the documented two-phase policy and gate
-        upgrade procedure.
-    - path: ".github/workflows/coderabbit-gate.yml"
+        Block changes that disable automatic or incremental review, request-changes behavior,
+        review progress, or fail-closed review errors. Require pinned-schema validation for every
+        configuration change and keep the scheduled live-schema drift check non-gating. Preserve
+        the repository-owned policy model and require the configured CODEOWNER to review changes.
+    - path: ".github/CODEOWNERS"
       instructions: >-
-        This is a protected trust boundary. It must run only from trusted main-branch push,
-        pull_request_target, canonical workflow_run, maintainer-command, or manual events without
-        checking out or executing pull-request code. Keep the coderabbit-gate environment
-        restricted to main. Use a separate Octokit client authenticated by an owner-scoped,
-        Contents-read token to verify that the selected Gate App installation contains the current
-        repository and only active, public, independent alitycs-sdk-* repositories on main; recheck
-        that selection before reading reviews and immediately before a conclusion. Verify the
-        policy blob and complete workflow tree against the current main ref, reconcile reviews from
-        the API, and avoid repository-global concurrency keys. Rename prior canonical checks to
-        unique neutral superseded names, create a fresh exact-head check owned by the dedicated
-        Alitycs Gate app, and normalize concurrent duplicates before any conclusion. Initial SDK
-        bootstrap follows the documented seed procedure; after that baseline is on main, ordinary
-        pull requests must not alter this file.
-    - path: ".github/workflows/coderabbit-review-event.yml"
-      instructions: >-
-        Keep this review-state signal unprivileged: pull_request_review submitted/dismissed only,
-        no checkout, secrets, environment, artifacts, outputs, concurrency, or use of pull-request
-        data. The trusted gate must treat its workflow_run completion only as a wake-up signal and
-        accept that signal only from CodeRabbit or a current write-level collaborator, then re-read
-        all pull requests, reviews, workflow identities, and permissions from GitHub.
+        Keep CodeRabbit policy, GitHub workflows, validation scripts, and this CODEOWNERS file under
+        explicit owner review. Do not replace repository-owned policy with a central policy
+        repository or a separate custom gate application.
     - path: ".github/workflows/release.yml"
       instructions: >-
         Do not add an Actions concurrency key. Concurrency groups are repository-global, so a
@@ -117,29 +99,21 @@ reviews:
         defenses.
     - path: ".github/workflows/**"
       instructions: >-
-        This entire tree is an exact protected boundary because required Actions checks are bound
-        by app and job name, not workflow identity. Initial SDK bootstrap follows the documented
-        seed procedure. After that baseline is on main, ordinary pull requests must not change or
-        add workflows; use the documented two-phase upgrade procedure. Keep permissions
-        least-privileged, GitHub and reusable actions pinned to full commit SHAs, and Docker actions
-        pinned to SHA-256 digests. Require every non-reusable job to resolve to exactly one scalar,
-        explicitly versioned GitHub-hosted runner label; direct scalar aliases are allowed, while
-        reusable-workflow jobs with `uses` may omit it. Reject `*-latest`, expressions, self-hosted
-        labels, missing or duplicate declarations, and non-scalar forms. Workflow container and
-        service images must be literal lowercase registry references pinned to full SHA-256
-        digests. Reject YAML merge keys (`<<`) everywhere while continuing to resolve ordinary
-        anchors and aliases structurally. CI must stay deterministic, and releases must be gated on
-        the complete verification and package-integrity suite.
+        Keep permissions least-privileged, GitHub and reusable actions pinned to full commit SHAs,
+        and Docker actions pinned to SHA-256 digests. Require every non-reusable workflow job to
+        resolve to exactly one scalar, explicitly versioned GitHub-hosted runner label; reusable-
+        workflow jobs with `uses` may omit it. Reject `*-latest`, expressions, self-hosted labels,
+        missing or duplicate declarations, and non-scalar forms. Workflow container and service
+        images must be literal lowercase registry references pinned to full SHA-256 digests. Reject
+        YAML merge keys (`<<`) everywhere while continuing to resolve ordinary anchors and aliases
+        structurally. CI must stay deterministic, and releases must be gated on the complete
+        verification and package-integrity suite. Changes require CODEOWNER review.
 
   auto_review:
     enabled: true
     auto_incremental_review: true
     auto_pause_after_reviewed_commits: 0
     drafts: false
-    ignore_usernames:
-      - "dependabot[bot]"
-      - "renovate[bot]"
-      - "github-actions[bot]"
 
   pre_merge_checks:
     override_requested_reviewers_only: true
