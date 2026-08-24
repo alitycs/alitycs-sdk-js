@@ -1,0 +1,16 @@
+{
+  "name": "alitycs-install-smoke",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@alitycs/browser": "file:../../../release/alitycs-browser-1.0.2.tgz",
+    "@alitycs/browser-snippet": "file:../../../release/alitycs-browser-snippet-1.0.2.tgz",
+    "@alitycs/core": "file:../../../release/alitycs-core-1.0.2.tgz"
+  },
+  "overrides": {
+    "@alitycs/core": "file:../../../release/alitycs-core-1.0.2.tgz"
+  },
+  "resolutions": {
+    "@alitycs/core": "file:../../../release/alitycs-core-1.0.2.tgz"
+  }
+}
