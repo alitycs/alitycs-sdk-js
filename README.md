@@ -14,6 +14,7 @@ the browser SDK, and the lightweight browser loader.
 | [`@alitycs/core`](sdks/core)                       | Node.js, Bun, Deno, edge runtimes | Tracking, identity, page and error events, trusted revenue events, batching, sessions, retry, and lifecycle control |
 | [`@alitycs/browser`](sdks/browser)                 | Browsers                          | Core capabilities plus optional DOM/page autocapture, lifecycle flushing, and a GA4 compatibility bridge            |
 | [`@alitycs/browser-snippet`](sdks/browser-snippet) | Browser script tag                | A small loader that queues calls and loads the browser SDK asynchronously                                           |
+| [`@alitycs/server`](sdks/server)                   | Node.js, Bun (servers)            | Stateless per-call identity tracking with aliases and person traits — safe for shared server clients                |
 
 All packages are currently version `1.0.1`. Versioned, installable package archives are attached to
 [GitHub Releases](https://github.com/alitycs/alitycs-sdk-js/releases). Public npm publication is

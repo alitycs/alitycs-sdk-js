@@ -1,7 +1,7 @@
 {
   "title": "Alitycs Analytics Event Schema",
   "description": "Unified event structure for all Alitycs Analytics SDKs",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "definitions": {
     "RevenuePayload": {
       "oneOf": [
@@ -56,7 +56,7 @@
         },
         "event": {
           "type": "string",
-          "description": "Event name/type"
+          "description": "Event name/type. Reserved names on eventType 'identify' signal profile operations rather than product activity: '$alias' (properties.previousId links a previous identity to the event's identity), '$set' (latest-wins person traits), '$set_once' (first-wins person traits; downstream keeps the earliest value per key), and '$unset' (properties.$keys holds a JSON string array of trait keys to remove). Regular tracking must not use these names."
         },
         "eventType": {
           "type": "string",
@@ -77,7 +77,8 @@
         },
         "timestamp": {
           "type": "integer",
-          "description": "Unix timestamp in milliseconds"
+          "minimum": 1000000000000,
+          "description": "Unix timestamp in milliseconds. The minimum (2001-09-09) rejects seconds-precision values, which would land every event in 1970 and collide in dedup windows."
         },
         "properties": {
           "type": "object",
@@ -91,7 +92,7 @@
         },
         "dedupeKey": {
           "type": "string",
-          "description": "Optional client-side deduplication key"
+          "description": "Optional client-side deduplication key. Known asymmetry (do not enforce for non-JS SDKs): only @alitycs/core emits it today; the worker's wire DTO (RawAnalyticsEvent) has no such field and silently drops it (ignoreUnknownKeys), so server-side dedup currently relies on eventId + timestamp."
         },
         "context": {
           "$ref": "#/definitions/EventContext"

@@ -23,7 +23,27 @@ here before a version tag is created.
   replays, and omits empty UTM parameters; snippet builds reject malformed semantic versions while
   retaining exact prerelease and build-metadata support.
 
+### Added
+
+- `@alitycs/core`: identity-linking and person-trait surface — `alias(previousId)` emits a
+  reserved `$alias` identify-type event, `set()` / `setOnce()` emit `$set` / `$set_once`
+  (latest-wins and first-wins person traits), and `unset(keys)` emits `$unset` with the key list
+  encoded as JSON in `$keys`. Event construction moved to a shared `buildAnalyticsEvent` module so
+  all surfaces emit identical wire shapes.
+- `@alitycs/server` (new package): stateless server-side analytics for Node/Bun. Every call
+  requires explicit `userId` and/or `anonymousId`, nothing is stored between calls, and validation
+  fails fast instead of silently dropping events — a shared client can safely serve interleaved
+  requests. Batching/retry/bisection are reused from core; calls drain by default
+  (`drainPerCall: false` opts out).
+- `specs/event-schema.json` 0.5.0: documents the reserved identify-type event names and their
+  property encodings.
+
 ### Changed
+
+- Analytics backend resolves anonymous histories into users at query time via tenant-scoped
+  identity links; funnels now credit pre-signup anonymous steps to the identifying user, retention
+  cohorts include linked anonymous activity, and metrics expose `unique_actors`. Dashboards rank
+  identified visitors above anonymous ones (`DASHBOARD_TAXONOMY_VERSION` `2026-08-26.1`).
 
 - `@alitycs/browser-snippet`: the default full-SDK URL is now derived from the directory that
   served the snippet itself (via `document.currentScript` first, then script-tag scanning) instead
@@ -47,6 +67,8 @@ here before a version tag is created.
 
 ### Fixed
 
+- `@alitycs/core`: an expired session's rotation now clears the identified `userId`. Post-rotation
+  events previously kept stamping the pre-rotation user identity until the next `identify()`.
 - `@alitycs/browser`: a single navigation now produces exactly one pageview when the GA4 bridge,
   autoCapture, or both are enabled. Auto-captured page views share the bridge's
   `ga4:page_view:<location>` dedupe key and window instead of emitting a parallel un-deduped event.

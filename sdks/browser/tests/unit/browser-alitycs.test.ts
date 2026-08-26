@@ -2,6 +2,7 @@ import { describe, test, expect, mock, beforeEach, afterEach } from 'bun:test';
 import {
   BrowserAlitycs,
   Alitycs,
+  alias,
   captureError,
   clearGlobalProperties,
   flush,
@@ -11,9 +12,12 @@ import {
   page,
   removeGlobalProperties,
   reset,
+  set,
   setGlobalProperties,
+  setOnce,
   shutdown,
   track,
+  unset,
 } from '../../src/index';
 import type { BatchPayload } from '@alitycs/core';
 import { installGa4Bridge, type Ga4BridgeHandle } from '../../src/ga4';
@@ -236,6 +240,10 @@ describe('BrowserAlitycs', () => {
     track('module_track', { n: 1 });
     captureError('module_error', { code: 'E_MODULE' });
     identify('module-user', { plan: 'pro' });
+    alias('anon_module');
+    set({ seats: 3 });
+    setOnce({ source: 'module' });
+    unset(['plan']);
     page('ModulePage');
     reset();
     clearGlobalProperties();
@@ -247,6 +255,10 @@ describe('BrowserAlitycs', () => {
       'module_track',
       'module_error',
       'identify',
+      '$alias',
+      '$set',
+      '$set_once',
+      '$unset',
       'ModulePage',
       'module_after_reset',
     ]);

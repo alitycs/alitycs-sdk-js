@@ -11,28 +11,28 @@
     "audit": "bun audit --audit-level=high",
     "check": "bun run typecheck:all && bun run lint:all && bun run format:check && bun run test:all && bun run build:all",
     "verify:installs": "bash tests/install-fixtures/run.sh",
-    "test:all": "bun run test:policy && bun run test:core && bun run test:browser && bun run test:snippet && bun run test:react && bun run test:nextjs",
+    "test:all": "bun run test:policy && bun run test:core && bun run test:browser && bun run test:snippet && bun run test:react && bun run test:nextjs && bun run test:server",
     "test:policy": "bun test tests/coderabbit-policy.test.ts",
     "test:core": "cd sdks/core && bun test",
     "test:browser": "cd sdks/browser && bun run test",
     "test:snippet": "cd sdks/browser-snippet && bun run test",
     "test:react": "cd sdks/react && bun run test",
-    "build:all": "bun run build:core && bun run build:browser && bun run build:snippet && bun run build:react && bun run build:nextjs",
+    "build:all": "bun run build:core && bun run build:browser && bun run build:snippet && bun run build:react && bun run build:nextjs && bun run build:server",
     "build:core": "cd sdks/core && bun run build:all",
     "build:browser": "cd sdks/browser && bun run build:all",
     "build:snippet": "cd sdks/browser-snippet && bun run build",
     "build:react": "cd sdks/react && bun run build:all",
-    "typecheck:all": "bun run typecheck:core && bun run typecheck:browser && bun run typecheck:snippet && bun run typecheck:react && bun run typecheck:nextjs",
+    "typecheck:all": "bun run typecheck:core && bun run typecheck:browser && bun run typecheck:snippet && bun run typecheck:react && bun run typecheck:nextjs && bun run typecheck:server",
     "typecheck:core": "cd sdks/core && bun run type-check",
     "typecheck:browser": "cd sdks/browser && bun run type-check",
     "typecheck:snippet": "cd sdks/browser-snippet && bun run type-check",
     "typecheck:react": "cd sdks/react && bun run type-check",
-    "lint:all": "bun run lint:core && bun run lint:browser && bun run lint:snippet && bun run lint:react && bun run lint:nextjs",
+    "lint:all": "bun run lint:core && bun run lint:browser && bun run lint:snippet && bun run lint:react && bun run lint:nextjs && bun run lint:server",
     "lint:core": "cd sdks/core && bun run lint",
     "lint:browser": "cd sdks/browser && bun run lint",
     "lint:snippet": "cd sdks/browser-snippet && bun run lint",
     "lint:react": "cd sdks/react && bun run lint",
-    "format:check": "bun run format:core && bun run format:browser && bun run format:snippet && bun run format:react && bun run format:nextjs",
+    "format:check": "bun run format:core && bun run format:browser && bun run format:snippet && bun run format:react && bun run format:nextjs && bun run format:server",
     "format:core": "cd sdks/core && bun run format:check",
     "format:browser": "cd sdks/browser && bun run format:check",
     "format:snippet": "cd sdks/browser-snippet && bun run format:check",
@@ -41,7 +41,12 @@
     "build:nextjs": "cd sdks/nextjs && bun run build:all",
     "typecheck:nextjs": "cd sdks/nextjs && bun run type-check",
     "lint:nextjs": "cd sdks/nextjs && bun run lint",
-    "format:nextjs": "cd sdks/nextjs && bun run format:check"
+    "format:nextjs": "cd sdks/nextjs && bun run format:check",
+    "test:server": "cd sdks/server && bun run test",
+    "build:server": "cd sdks/server && bun run build:all",
+    "typecheck:server": "cd sdks/server && bun run type-check",
+    "lint:server": "cd sdks/server && bun run lint",
+    "format:server": "cd sdks/server && bun run format:check"
   },
   "repository": {
     "type": "git",
@@ -99,6 +104,14 @@
     ],
     "sdks/nextjs/tests/**/*.{ts,tsx}": [
       "prettier --write"
+    ],
+    "sdks/server/src/**/*.ts": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "sdks/server/tests/**/*.ts": [
+      "prettier --write",
+      "eslint --fix"
     ]
   }
 }

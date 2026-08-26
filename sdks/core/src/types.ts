@@ -28,6 +28,12 @@ export interface ResolvedConfig {
 
 export type EventType = 'track' | 'identify' | 'page' | 'error';
 
+/**
+ * Reserved event names carried on eventType 'identify' for profile operations
+ * ('$alias', '$set', '$set_once', '$unset'). Not valid names for track().
+ */
+export type ReservedEventName = '$alias' | '$set' | '$set_once' | '$unset';
+
 export interface EventContext {
   locale?: string;
   timezone?: string;

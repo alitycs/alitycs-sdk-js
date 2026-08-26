@@ -13,7 +13,11 @@ import { BatchManager } from './batch-manager';
 import { SessionManager } from './session';
 import { createLogger, type Logger } from './logger';
 import { EventDeduplicator } from './dedup';
-import { buildAnalyticsEvent, validateEvent } from './event';
+import {
+  RESERVED_EVENT_NAMES,
+  buildAnalyticsEvent,
+  validateEvent,
+} from './event';
 
 export const DEFAULTS: Omit<ResolvedConfig, 'apiKey'> = {
   endpoint: 'https://api.alitycs.com/events',
@@ -56,7 +60,11 @@ export class Alitycs {
       requestTimeout: config.requestTimeout,
       logger: this.logger,
     });
-    this.sessionManager = new SessionManager(config.sessionTimeout);
+    // Session rotation (expiry-driven recreation) invalidates the identified user, matching the
+    // JVM/Go SDKs: post-rotation events must not keep stamping the pre-rotation identity.
+    this.sessionManager = new SessionManager(config.sessionTimeout, () => {
+      this.userId = undefined;
+    });
     this.userId = this.sessionManager.getSession().userId;
 
     if (config.batching) {
@@ -94,6 +102,39 @@ export class Alitycs {
     this.userId = userId;
     this.sessionManager.setUserId(userId);
     this.enqueue('identify', 'identify', { userId, ...traits }, options);
+  }
+
+  /**
+   * Links a previous identity (anonymous or user) to the current one so analytics can merge
+   * the two histories. Emits an identify-type '$alias' event; no-op when previousId is blank.
+   */
+  alias(previousId: string, options?: EventOptions): void {
+    if (!previousId || !previousId.trim()) return;
+    this.enqueue('identify', RESERVED_EVENT_NAMES.alias, { previousId }, options);
+  }
+
+  /** Latest-wins person traits ('$set'). Values serialize like track() properties. */
+  set(traits: Record<string, unknown>, options?: EventOptions): void {
+    if (!traits || Object.keys(traits).length === 0) return;
+    this.enqueue('identify', RESERVED_EVENT_NAMES.set, traits, options);
+  }
+
+  /** First-wins person traits ('$set_once'): downstream keeps the earliest value per key. */
+  setOnce(traits: Record<string, unknown>, options?: EventOptions): void {
+    if (!traits || Object.keys(traits).length === 0) return;
+    this.enqueue('identify', RESERVED_EVENT_NAMES.setOnce, traits, options);
+  }
+
+  /**
+   * Removes person traits ('$unset'). The key list travels as JSON in the '$keys' property
+   * because event property values are always strings on the wire.
+   */
+  unset(keys: string[], options?: EventOptions): void {
+    const removable = Array.isArray(keys)
+      ? keys.filter(key => typeof key === 'string' && key.trim() !== '')
+      : [];
+    if (removable.length === 0) return;
+    this.enqueue('identify', RESERVED_EVENT_NAMES.unset, { $keys: JSON.stringify(removable) }, options);
   }
 
   reset(): void {
@@ -306,6 +347,22 @@ export function identify(userId: string, traits?: Record<string, unknown>, optio
   defaultInstance?.identify(userId, traits, options);
 }
 
+export function alias(previousId: string, options?: EventOptions): void {
+  defaultInstance?.alias(previousId, options);
+}
+
+export function set(traits: Record<string, unknown>, options?: EventOptions): void {
+  defaultInstance?.set(traits, options);
+}
+
+export function setOnce(traits: Record<string, unknown>, options?: EventOptions): void {
+  defaultInstance?.setOnce(traits, options);
+}
+
+export function unset(keys: string[], options?: EventOptions): void {
+  defaultInstance?.unset(keys, options);
+}
+
 export function reset(): void {
   defaultInstance?.reset();
 }
@@ -345,6 +402,7 @@ export type {
   ResolvedConfig,
   AnalyticsEvent,
   EventType,
+  ReservedEventName,
   EventContext,
   BatchPayload,
   SessionData,

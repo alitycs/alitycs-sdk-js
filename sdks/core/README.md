@@ -46,6 +46,30 @@ analytics.track('feature_used', { feature: 'ask_data' });
 analytics.reset();
 ```
 
+### Identity linking and person traits
+
+`alias()`, `set()`, `setOnce()`, and `unset()` manage identity merges and person profiles. They
+travel as `eventType: 'identify'` events with reserved names (`$alias`, `$set`, `$set_once`,
+`$unset`):
+
+```ts
+// Merge a previous (anonymous or user) id into the current identity.
+analytics.alias('anon_legacy');
+
+// Person traits: latest-wins ($set), first-wins ($set_once), removal ($unset).
+analytics.set({ plan: 'pro', seats: 3 });
+analytics.setOnce({ signupSource: 'referral' });
+analytics.unset(['seats']);
+```
+
+The analytics layer links anonymous histories to users automatically for any event carrying both
+ids — including plain `identify()` calls — so `alias()` is only needed when the previous identity
+was itself a stable id that should merge into the current one. Trait maps follow the same limits as
+event properties (at most 50 entries; oversized calls drop with a warning like any invalid event).
+
+For shared Node/Bun servers, prefer [`@alitycs/server`](../server) — every call carries explicit
+ids, so interleaved requests can never inherit each other's identity.
+
 ### Trusted revenue events
 
 Revenue ingestion is server-only. Use a secret key with `revenue:write`; never expose that key in a

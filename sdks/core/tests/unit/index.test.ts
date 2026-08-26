@@ -174,6 +174,111 @@ describe('Alitycs', () => {
     await sdk.shutdown();
   });
 
+  test('alias() emits a reserved $alias identity event', async () => {
+    const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+    sdk.alias('anon_legacy');
+    sdk.track('after_alias');
+
+    await sdk.flush();
+
+    const events = sentPayloads[0].events;
+    expect(events[0]).toMatchObject({
+      event: '$alias',
+      eventType: 'identify',
+      properties: { previousId: 'anon_legacy' },
+    });
+    // Alias does not change ambient identity — it only links histories.
+    expect(events[1].event).toBe('after_alias');
+
+    await sdk.shutdown();
+  });
+
+  test('alias() silently no-ops on a blank previous id', () => {
+    const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+    sdk.alias('');
+    sdk.alias('   ');
+
+    expect(sdk.pending).toBe(0);
+    sdk.shutdown();
+  });
+
+  test('set() and setOnce() emit reserved trait events with serialized values', async () => {
+    const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+    sdk.set({ plan: 'pro', seats: 3 });
+    sdk.setOnce({ source: 'signup-modal' });
+
+    await sdk.flush();
+
+    const events = sentPayloads[0].events;
+    expect(events[0]).toMatchObject({
+      event: '$set',
+      eventType: 'identify',
+      properties: { plan: 'pro', seats: '3' },
+    });
+    expect(events[1]).toMatchObject({
+      event: '$set_once',
+      eventType: 'identify',
+      properties: { source: 'signup-modal' },
+    });
+
+    await sdk.shutdown();
+  });
+
+  test('set() silently no-ops on empty traits', () => {
+    const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+    sdk.set({});
+    sdk.setOnce({});
+    sdk.set(undefined as unknown as Record<string, unknown>);
+
+    expect(sdk.pending).toBe(0);
+    sdk.shutdown();
+  });
+
+  test('set() drops oversized trait maps through the normal limit path', async () => {
+    const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+    const tooManyTraits: Record<string, number> = {};
+    for (let i = 0; i < 51; i++) tooManyTraits[`trait_${i}`] = i;
+    sdk.set(tooManyTraits);
+    await sdk.flush();
+
+    expect(sentPayloads.length).toBe(0);
+    expect(sdk.droppedEvents).toBe(1);
+
+    await sdk.shutdown();
+  });
+
+  test('unset() encodes the key list as JSON in $keys', async () => {
+    const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+    sdk.unset(['plan', 'trial_end']);
+    await sdk.flush();
+
+    expect(sentPayloads[0].events[0]).toMatchObject({
+      event: '$unset',
+      eventType: 'identify',
+      properties: { $keys: '["plan","trial_end"]' },
+    });
+
+    await sdk.shutdown();
+  });
+
+  test('unset() filters blank keys and no-ops when nothing remains', () => {
+    const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+    sdk.unset(['']);
+    sdk.unset([]);
+    sdk.unset(['plan', '', '  ']);
+
+    // Only the valid keys from the last call survive.
+    expect(sdk.pending).toBe(1);
+    sdk.shutdown();
+  });
+
   test('restores the identified user from persisted session state', async () => {
     const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
     const values = new Map<string, string>();
@@ -199,6 +304,43 @@ describe('Alitycs', () => {
       expect(sentPayloads[0].events[0].userId).toBe('user-persisted');
       await restored.shutdown();
     } finally {
+      if (originalStorage) {
+        Object.defineProperty(globalThis, 'localStorage', originalStorage);
+      } else {
+        delete (globalThis as { localStorage?: unknown }).localStorage;
+      }
+    }
+  });
+
+  test('session rotation clears a stale identified userId', async () => {
+    const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    const values = new Map<string, string>();
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => values.get(key) ?? null,
+        removeItem: (key: string) => values.delete(key),
+        setItem: (key: string, value: string) => values.set(key, value),
+      },
+    });
+    const originalNow = Date.now;
+    let now = 1_700_000_000_000;
+    Date.now = () => now;
+
+    try {
+      const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+      sdk.identify('user-stale');
+
+      now += 31 * 60 * 1000; // Session times out at 30 minutes of inactivity.
+      sdk.track('after_rotation');
+      await sdk.flush();
+
+      const rotated = sentPayloads[0].events.find(event => event.event === 'after_rotation')!;
+      expect(rotated.userId).toBeUndefined();
+      expect(rotated.anonymousId).toMatch(/^anon_/);
+      await sdk.shutdown();
+    } finally {
+      Date.now = originalNow;
       if (originalStorage) {
         Object.defineProperty(globalThis, 'localStorage', originalStorage);
       } else {

@@ -106,6 +106,22 @@ export function identify(userId: string, traits?: Record<string, unknown>, optio
   defaultInstance?.identify(userId, traits, options);
 }
 
+export function alias(previousId: string, options?: EventOptions): void {
+  defaultInstance?.alias(previousId, options);
+}
+
+export function set(traits: Record<string, unknown>, options?: EventOptions): void {
+  defaultInstance?.set(traits, options);
+}
+
+export function setOnce(traits: Record<string, unknown>, options?: EventOptions): void {
+  defaultInstance?.setOnce(traits, options);
+}
+
+export function unset(keys: string[], options?: EventOptions): void {
+  defaultInstance?.unset(keys, options);
+}
+
 export function reset(): void {
   defaultInstance?.reset();
 }
@@ -146,6 +162,7 @@ export type {
   ResolvedConfig,
   AnalyticsEvent,
   EventType,
+  ReservedEventName,
   EventContext,
   BatchPayload,
   SessionData,

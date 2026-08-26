@@ -1,0 +1,2 @@
+# Coverage is measured per-package on sources; this package imports @alitycs/core's
+# built dist, which would skew instrumentation, so no threshold is enforced here.
