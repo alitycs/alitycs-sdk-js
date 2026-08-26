@@ -1,6 +1,7 @@
 import { describe, test, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { BatchManager } from '../../src/batch-manager';
 import type { AnalyticsEvent, ResolvedConfig, BatchPayload } from '../../src/types';
+import type { TransportResult } from '../../src/transport';
 import { createLogger } from '../../src/logger';
 
 let nextEventId = 0;
@@ -33,13 +34,16 @@ function makeEvent(name = 'test_event'): AnalyticsEvent {
   };
 }
 
-function makeMockTransport() {
+const OK: TransportResult = { ok: true, transient: false };
+
+function makeMockTransport(result: TransportResult | ((payload: BatchPayload) => TransportResult) = OK) {
   const sent: BatchPayload[] = [];
   const options: unknown[] = [];
   return {
-    send: mock(async (payload: BatchPayload, sendOptions?: unknown) => {
+    send: mock(async (payload: BatchPayload, sendOptions?: unknown): Promise<TransportResult> => {
       sent.push(payload);
       options.push(sendOptions);
+      return typeof result === 'function' ? result(payload) : result;
     }),
     sent,
     options,
@@ -417,5 +421,105 @@ describe('BatchManager', () => {
     finishKeepalive?.();
     await Promise.all([keepalive, drain]);
     expect(drained).toBe(true);
+  });
+
+  test('transient failure requeues undelivered events at the queue head in order', async () => {
+    let attempts = 0;
+    const transport = makeMockTransport(() => (++attempts === 1 ? { ok: false, transient: true } : OK));
+    bm = new BatchManager(makeConfig({ flushSize: 100 }), transport as any, createLogger(false));
+
+    bm.add(makeEvent('first'));
+    bm.add(makeEvent('second'));
+    await bm.flush();
+
+    // Nothing delivered; both events are back at the head of the queue, order preserved.
+    expect(transport.sent).toHaveLength(1);
+    expect(bm.pending).toBe(2);
+
+    await bm.flush();
+
+    expect(transport.sent).toHaveLength(2);
+    expect(transport.sent[1].events.map(event => event.event)).toEqual(['first', 'second']);
+    expect(bm.pending).toBe(0);
+  });
+
+  test('events enqueued during a failed flush stay behind requeued events', async () => {
+    let attempts = 0;
+    const transport = makeMockTransport(() => (++attempts === 1 ? { ok: false, transient: true } : OK));
+    bm = new BatchManager(makeConfig({ flushSize: 100 }), transport as any, createLogger(false));
+
+    bm.add(makeEvent('retried'));
+    const first = bm.flush();
+    await Promise.resolve();
+    bm.add(makeEvent('newer'));
+    await first;
+
+    expect(bm.pending).toBe(2);
+    await bm.flush();
+
+    // The requeued head event goes out ahead of the newer one, in one batch.
+    expect(transport.sent).toHaveLength(2);
+    expect(transport.sent[1].events.map(event => event.event)).toEqual(['retried', 'newer']);
+  });
+
+  test('a whole-batch HTTP 400 splits the batch in half and delivers valid halves', async () => {
+    const transport = makeMockTransport(payload =>
+      payload.events.length > 1 ? { ok: false, status: 400, transient: false } : OK
+    );
+    bm = new BatchManager(makeConfig({ flushSize: 100 }), transport as any, createLogger(false));
+
+    for (const name of ['a', 'b', 'c', 'd']) bm.add(makeEvent(name));
+    await bm.flush();
+
+    const singles = transport.sent.filter(payload => payload.events.length === 1);
+    expect(singles.map(payload => payload.events[0].event)).toEqual(['a', 'b', 'c', 'd']);
+    expect(bm.pending).toBe(0);
+  });
+
+  test('a single event rejected with HTTP 400 is dropped, not requeued forever', async () => {
+    const transport = makeMockTransport({ ok: false, status: 400, transient: false });
+    bm = new BatchManager(makeConfig({ flushSize: 100 }), transport as any, createLogger(false));
+
+    bm.add(makeEvent('poison'));
+    await bm.flush();
+
+    expect(transport.sent).toHaveLength(1);
+    expect(bm.pending).toBe(0);
+  });
+
+  test('other permanent rejections drop the batch without splitting', async () => {
+    const transport = makeMockTransport({ ok: false, status: 403, transient: false });
+    bm = new BatchManager(makeConfig({ flushSize: 100 }), transport as any, createLogger(false));
+
+    bm.add(makeEvent('a'));
+    bm.add(makeEvent('b'));
+    await bm.flush();
+
+    expect(transport.sent).toHaveLength(1); // no split retries
+    expect(bm.pending).toBe(0);
+  });
+
+  test('drain() terminates under persistent failure and drops the remainder', async () => {
+    const transport = makeMockTransport({ ok: false, transient: true });
+    bm = new BatchManager(makeConfig({ flushSize: 100 }), transport as any, createLogger(false));
+
+    bm.add(makeEvent('stuck'));
+    await bm.drain();
+
+    // Every round failed, but drain gave up instead of looping forever.
+    expect(transport.sent.length).toBeGreaterThanOrEqual(3);
+    expect(bm.pending).toBe(0);
+  });
+
+  test('legacy transports that return nothing are treated as delivered', async () => {
+    const sent: BatchPayload[] = [];
+    const transport = { send: mock(async (payload: BatchPayload) => void sent.push(payload)) };
+    bm = new BatchManager(makeConfig(), transport as any, createLogger(false));
+
+    bm.add(makeEvent('legacy'));
+    await bm.flush();
+
+    expect(sent).toHaveLength(1);
+    expect(bm.pending).toBe(0);
   });
 });

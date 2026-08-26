@@ -1,20 +1,19 @@
 import type {
   AlitycsConfig,
   ResolvedConfig,
-  AnalyticsEvent,
   BatchPayload,
   EventType,
   EventOptions,
   EventContext,
   RevenuePayload,
 } from './types';
-import { generateId, serializeProperties, UTM_KEYS, utmParam } from './utils';
+import { generateId, UTM_KEYS, utmParam } from './utils';
 import { HttpTransport } from './transport';
 import { BatchManager } from './batch-manager';
 import { SessionManager } from './session';
-import { collectContext } from './context';
 import { createLogger, type Logger } from './logger';
 import { EventDeduplicator } from './dedup';
+import { buildAnalyticsEvent, validateEvent } from './event';
 
 export const DEFAULTS: Omit<ResolvedConfig, 'apiKey'> = {
   endpoint: 'https://api.alitycs.com/events',
@@ -27,6 +26,9 @@ export const DEFAULTS: Omit<ResolvedConfig, 'apiKey'> = {
   batching: true,
 };
 
+// Client-side event limits and wire-event construction live in ./event.ts, shared with
+// the stateless server client so both surfaces emit byte-identical payloads.
+
 export class Alitycs {
   protected config: ResolvedConfig;
   protected transport: HttpTransport;
@@ -38,14 +40,20 @@ export class Alitycs {
   private globalProperties: Record<string, unknown> = {};
   private deduplicator = new EventDeduplicator();
   private lastEventTimestamp = 0;
+  private droppedCount = 0;
+  private shutDown = false;
 
   protected constructor(config: ResolvedConfig) {
+    if (!(config.flushSize >= 1) || !(config.maxQueueSize >= 1) || !(config.flushInterval >= 1)) {
+      throw new Error('flushSize, maxQueueSize, and flushInterval must be positive numbers');
+    }
     this.config = config;
     this.logger = createLogger(config.debug);
     this.transport = new HttpTransport({
       endpoint: config.endpoint,
       apiKey: config.apiKey,
       maxRetries: config.maxRetries,
+      requestTimeout: config.requestTimeout,
       logger: this.logger,
     });
     this.sessionManager = new SessionManager(config.sessionTimeout);
@@ -172,6 +180,12 @@ export class Alitycs {
       await Promise.all(this.inFlight);
     }
     this.deduplicator.clear();
+    this.shutDown = true;
+  }
+
+  /** True once shutdown() has completed; a shut-down client must not be reused. */
+  get isShutdown(): boolean {
+    return this.shutDown;
   }
 
   get pending(): number {
@@ -179,6 +193,11 @@ export class Alitycs {
       return this.batchManager.pending;
     }
     return this.inFlight.size;
+  }
+
+  /** Events rejected client-side at enqueue (limits, identity, timestamp sanity). */
+  get droppedEvents(): number {
+    return this.droppedCount;
   }
 
   private enqueue(
@@ -201,19 +220,25 @@ export class Alitycs {
     const timestamp = Math.max(requestedTimestamp, this.lastEventTimestamp + 1);
     this.lastEventTimestamp = timestamp;
 
-    const event: AnalyticsEvent = {
-      eventId: `evt_${generateId()}`,
-      event: name,
+    const event = buildAnalyticsEvent({
       eventType: type,
+      eventName: name,
       userId: this.userId,
       anonymousId: session.anonymousId,
       sessionId: session.id,
       timestamp,
-      properties: serializeProperties({ ...this.globalProperties, ...(properties ?? {}) }),
+      properties: { ...this.globalProperties, ...(properties ?? {}) },
+      contextOverrides,
       revenue,
-      context: { ...collectContext(), ...contextOverrides },
       dedupeKey: options?.dedupeKey,
-    };
+    });
+
+    const rejection = validateEvent(event);
+    if (rejection) {
+      this.droppedCount++;
+      this.logger.warn(`Event dropped: ${rejection}`);
+      return;
+    }
 
     if (this.batchManager) {
       this.batchManager.add(event);
@@ -329,10 +354,27 @@ export type {
 export { createLogger } from './logger';
 export { UTM_KEYS } from './utils';
 export type { Logger } from './logger';
+// Exported building blocks for the stateless @alitycs/server client, which composes the
+// same transport/batch/validation primitives without inheriting ambient identity state.
+export { HttpTransport } from './transport';
+export { BatchManager } from './batch-manager';
+export { EventDeduplicator } from './dedup';
+export {
+  RESERVED_EVENT_NAMES,
+  buildAnalyticsEvent,
+  validateEvent,
+  type BuildAnalyticsEventInput,
+} from './event';
 
 function validateRevenuePayload(payload: RevenuePayload): void {
   const values = payload as RevenuePayload & Record<string, unknown>;
-  if (payload.version !== 1 || !payload.factId.trim() || payload.factId.length > 200) {
+  if (
+    payload.version !== 1 ||
+    typeof payload.factId !== 'string' ||
+    payload.factId.length === 0 ||
+    payload.factId.trim().length === 0 ||
+    payload.factId.length > 200
+  ) {
     throw new Error('Revenue payload requires version 1 and a factId between 1 and 200 characters');
   }
   if (!/^[A-Z]{3}$/.test(payload.currency)) {

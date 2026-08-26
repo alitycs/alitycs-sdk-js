@@ -4,6 +4,8 @@
     "noEmit": false,
     "declaration": true,
     "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "sourceMap": false,
     "outDir": "./dist",
     "allowImportingTsExtensions": false
   },

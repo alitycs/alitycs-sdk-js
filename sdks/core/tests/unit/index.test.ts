@@ -207,6 +207,30 @@ describe('Alitycs', () => {
     }
   });
 
+  test('init() rejects degenerate batching configuration instead of dropping everything silently', () => {
+    expect(() => Alitycs.init({ apiKey: 'test-key', maxQueueSize: 0 })).toThrow('must be positive numbers');
+    expect(() => Alitycs.init({ apiKey: 'test-key', flushSize: 0 })).toThrow('must be positive numbers');
+    expect(() => Alitycs.init({ apiKey: 'test-key', flushInterval: 0 })).toThrow('must be positive numbers');
+    expect(() => Alitycs.init({ apiKey: 'test-key', maxQueueSize: Number.NaN })).toThrow('must be positive numbers');
+  });
+
+  test('trackRevenue() rejects missing or blank factId with the contract error, not a TypeError', () => {
+    const sdk = Alitycs.init({ apiKey: 'secret-revenue-key' });
+    expect(() => sdk.trackRevenue({ version: 1, kind: 'transaction', amount: '1', currency: 'USD' } as any)).toThrow(
+      'factId between 1 and 200 characters'
+    );
+    expect(() =>
+      sdk.trackRevenue({
+        version: 1,
+        kind: 'transaction',
+        factId: '   ',
+        amount: '1',
+        currency: 'USD',
+      })
+    ).toThrow('factId between 1 and 200 characters');
+    sdk.shutdown();
+  });
+
   test('page() creates a page event', async () => {
     const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
 
@@ -699,6 +723,130 @@ describe('Alitycs', () => {
       expect(sentPayloads[0].events.length).toBe(1);
 
       await moduleShutdown();
+    });
+  });
+
+  describe('client-side event limits', () => {
+    test('tracks within limits pass through untouched', async () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+
+      sdk.track('ok_event', { alpha: 'a'.repeat(1000) });
+      expect(sdk.pending).toBe(1);
+      expect(sdk.droppedEvents).toBe(0);
+
+      await sdk.flush();
+      expect(sentPayloads[0].events).toHaveLength(1);
+      await sdk.shutdown();
+    });
+
+    test('rejects more than 50 properties', async () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+      const properties: Record<string, number> = {};
+      for (let i = 0; i < 51; i++) properties[`p${i}`] = i;
+
+      sdk.track('too_many_properties', properties);
+
+      expect(sdk.pending).toBe(0);
+      expect(sdk.droppedEvents).toBe(1);
+      await sdk.shutdown();
+    });
+
+    test('rejects property keys over 100 characters', () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+
+      sdk.track('long_key', { k: 'x' }); // warm the queue
+      sdk.track('long_key', { ['k'.repeat(101)]: 'v' });
+
+      expect(sdk.pending).toBe(1);
+      expect(sdk.droppedEvents).toBe(1);
+      sdk.shutdown();
+    });
+
+    test('rejects property values over 1000 characters', () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+
+      sdk.track('huge_value', { blob: 'x'.repeat(1001) });
+
+      expect(sdk.pending).toBe(0);
+      expect(sdk.droppedEvents).toBe(1);
+      sdk.shutdown();
+    });
+
+    test('rejects events estimated above 64KB', () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+
+      // Per-key/value shapes stay legal here — the huge action name blows the budget.
+      sdk.track('e'.repeat(70_000));
+
+      expect(sdk.pending).toBe(0);
+      expect(sdk.droppedEvents).toBe(1);
+      sdk.shutdown();
+    });
+
+    test('accepts an event at the exact per-field limits', () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+      const properties: Record<string, string> = {};
+      for (let i = 0; i < 50; i++) {
+        properties[`k${i}`.padEnd(100 - String(i).length, 'z') + String(i)] = 'v'.repeat(1000);
+      }
+
+      sdk.track('at_limits', properties);
+
+      expect(sdk.pending).toBe(1);
+      expect(sdk.droppedEvents).toBe(0);
+      sdk.shutdown();
+    });
+
+    test('rejects blank event names', () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+
+      sdk.track('   ');
+
+      expect(sdk.pending).toBe(0);
+      expect(sdk.droppedEvents).toBe(1);
+      sdk.shutdown();
+    });
+
+    test('rejects second-based timestamps', () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+
+      // pageAt() feeds captured timestamps; a seconds-sent value must be dropped.
+      (sdk as any).pageAt(1690000000, 'Seconds not millis');
+
+      expect(sdk.pending).toBe(0);
+      expect(sdk.droppedEvents).toBe(1);
+      sdk.shutdown();
+    });
+
+    test('rejects events without any identity', () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+      (sdk as any).sessionManager.getSession = () => ({
+        id: 'sess_x',
+        anonymousId: '',
+        startTime: Date.now(),
+        lastActivity: Date.now(),
+      });
+
+      sdk.track('no_identity');
+
+      expect(sdk.pending).toBe(0);
+      expect(sdk.droppedEvents).toBe(1);
+      sdk.shutdown();
+    });
+
+    test('rejections are logged even when debug is off', () => {
+      const originalWarn = console.warn;
+      const warnings: unknown[][] = [];
+      console.warn = (...args: unknown[]) => warnings.push(args);
+      try {
+        const sdk = Alitycs.init({ apiKey: 'key', debug: false, flushSize: 100 });
+        sdk.track('huge_value', { blob: 'x'.repeat(1001) });
+        sdk.shutdown();
+
+        expect(warnings.some(args => String(args.join(' ')).includes('Event dropped'))).toBe(true);
+      } finally {
+        console.warn = originalWarn;
+      }
     });
   });
 

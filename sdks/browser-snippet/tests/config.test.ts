@@ -48,7 +48,7 @@ describe('parseScriptConfig', () => {
 
   test('should find script by URL containing "alitycs"', () => {
     const script = document.createElement('script');
-    script.src = 'https://cdn.alitycs.com/snippet.min.js';
+    script.src = 'https://cdn.example.com/alitycs/snippet.min.js';
     script.setAttribute('data-api-key', 'key_from_url');
     document.head.appendChild(script);
 
@@ -145,7 +145,7 @@ describe('parseScriptConfig', () => {
     expect(config.debug).toBe(false);
   });
 
-  test('should use default SDK URL when not specified', () => {
+  test('should fall back to same-origin SDK path when the snippet has no src', () => {
     const script = document.createElement('script');
     script.setAttribute('data-api-key', 'test_key');
     document.head.appendChild(script);
@@ -156,9 +156,36 @@ describe('parseScriptConfig', () => {
     expect(config.sdkUrl).toBe(EXPECTED_DEFAULT_SDK_URL);
   });
 
+  test('should prefer document.currentScript over scanned script tags', () => {
+    const scanned = document.createElement('script');
+    scanned.setAttribute('data-api-key', 'scanned_key');
+    scanned.setAttribute('src', 'https://cdn.example.com/scanned/snippet.min.js');
+    document.head.appendChild(scanned);
+
+    const executing = document.createElement('script');
+    executing.setAttribute('data-api-key', 'current_key');
+    executing.setAttribute('src', 'https://cdn.example.com/current/snippet.min.js');
+    executing.setAttribute('data-sdk-url', 'https://cdn.example.com/current/browser.min.js');
+    document.head.appendChild(executing);
+    Object.defineProperty(document, 'currentScript', {
+      value: executing,
+      configurable: true,
+    });
+
+    try {
+      const { parseScriptConfig } = require('../src/config');
+      const config = parseScriptConfig();
+
+      expect(config.apiKey).toBe('current_key');
+      expect(config.sdkUrl).toBe('https://cdn.example.com/current/browser.min.js');
+    } finally {
+      Object.defineProperty(document, 'currentScript', { value: null, configurable: true });
+    }
+  });
+
   test('should return empty apiKey when missing', () => {
     const script = document.createElement('script');
-    script.src = 'https://cdn.alitycs.com/snippet.min.js';
+    script.src = 'https://cdn.example.com/alitycs/snippet.min.js';
     document.head.appendChild(script);
 
     const { parseScriptConfig } = require('../src/config');

@@ -24,7 +24,8 @@
     "lint": "eslint src/**/*.ts tests/**/*.ts",
     "lint:fix": "eslint src/**/*.ts tests/**/*.ts --fix",
     "format": "prettier --write src/**/*.ts tests/**/*.ts",
-    "format:check": "prettier --check src/**/*.ts tests/**/*.ts"
+    "format:check": "prettier --check src/**/*.ts tests/**/*.ts",
+    "build:types": "tsc -p tsconfig.build.json"
   },
   "keywords": [
     "analytics",

@@ -17,6 +17,18 @@ interface SnippetStub {
   [key: string]: unknown;
 }
 
+/** Queued snippet calls may only replay onto this public API surface — never internals or shutdown. */
+const REPLAYABLE_METHODS = new Set([
+  'track',
+  'captureError',
+  'identify',
+  'reset',
+  'page',
+  'setGlobalProperties',
+  'removeGlobalProperties',
+  'clearGlobalProperties',
+]);
+
 function initializeFromSnippet(): void {
   if (typeof window === 'undefined') return;
 
@@ -67,6 +79,10 @@ function initializeFromSnippet(): void {
         // Skip bare page() calls when autoCapture is on — autoCapture calls page() for the initial document.
         // Custom page('Name', {...}) calls are preserved since they carry user intent
         if (sdkConfig.autoCapture && call.method === 'page' && !call.args[0]) continue;
+        if (!REPLAYABLE_METHODS.has(call.method)) {
+          logger.warn('Ignoring unsupported queued call:', call.method);
+          continue;
+        }
         const method = call.method as keyof BrowserAlitycs;
         if (typeof sdk[method] === 'function') {
           const fn = sdk[method] as (...args: unknown[]) => unknown;

@@ -52,6 +52,15 @@ export class EventDeduplicator {
 
   private evict(): void {
     let toRemove = Math.ceil(MAX_ENTRIES * 0.1);
+    const now = Date.now();
+    // Expired entries first — they hold no dedupe value — then fall back to oldest-inserted.
+    for (const [key, entry] of this.entries) {
+      if (toRemove === 0) break;
+      if (entry.expiresAt <= now) {
+        this.entries.delete(key);
+        toRemove--;
+      }
+    }
     while (toRemove > 0 && this.entries.size > 0) {
       this.entries.delete(this.entries.keys().next().value!);
       toRemove--;

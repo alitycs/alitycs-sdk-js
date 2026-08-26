@@ -194,4 +194,46 @@ describe('AutoCapture pushState/replaceState tracking', () => {
 
     ac.stop();
   });
+
+  test('redacts obvious PII from captured $click hrefs', () => {
+    const tracked: Array<{ name: string; props: Record<string, unknown> }> = [];
+    const ac = new AutoCapture((name, props) => tracked.push({ name, props }));
+    ac.start();
+
+    const clickHandler = ((globalThis as any).document.addEventListener as ReturnType<typeof mock>).mock.calls.find(
+      (call: unknown[]) => call[0] === 'click'
+    )?.[1] as EventListener;
+    const hrefs: Array<string | undefined> = [];
+    const capturingHandler = (target: { href: string }): void => {
+      clickHandler({
+        target: {
+          tagName: 'A',
+          id: '',
+          className: '',
+          textContent: 'Link',
+          href: target.href,
+          getAttribute: () => null,
+        },
+      } as unknown as Event);
+      hrefs.push(tracked[tracked.length - 1]?.props.href as string | undefined);
+    };
+
+    // mailto targets carry a bare email address — dropped entirely.
+    capturingHandler({ href: 'mailto:jane@example.com' });
+    // Obvious email query parameters are stripped, the rest of the URL survives.
+    capturingHandler({ href: 'https://example.test/search?email=jane@example.com&q=shoes&reply=me@corp.test' });
+    // Ordinary URLs pass through untouched.
+    capturingHandler({ href: 'https://example.test/pricing?plan=pro' });
+    // Oversized hrefs are truncated.
+    capturingHandler({ href: `https://example.test/path?blob=${'x'.repeat(2000)}` });
+
+    expect(hrefs).toEqual([
+      undefined,
+      'https://example.test/search?q=shoes',
+      'https://example.test/pricing?plan=pro',
+      // 500-char cap minus the 31-char prefix.
+      expect.stringMatching(/^https:\/\/example\.test\/path\?blob=x{469}$/),
+    ]);
+    ac.stop();
+  });
 });

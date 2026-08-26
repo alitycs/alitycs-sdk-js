@@ -31,7 +31,12 @@ export function serializeProperties(props: Record<string, unknown>): Record<stri
     if (value === null) {
       result[key] = 'null';
     } else if (typeof value === 'object') {
-      result[key] = JSON.stringify(value);
+      // Circular refs and nested BigInt throw on stringify — never propagate into track().
+      try {
+        result[key] = JSON.stringify(value);
+      } catch {
+        result[key] = '[unserializable]';
+      }
     } else {
       result[key] = String(value);
     }

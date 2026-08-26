@@ -35,14 +35,15 @@ Queued events use a bounded `fetch(..., { keepalive: true })` flush on `pagehide
 
 The bridge observes the standard `dataLayer` used by `gtag.js` and Google Tag Manager, translates GA4 analytics commands to Alitycs, and leaves application call sites unchanged.
 
-### CDN setup
+### Self-hosted setup
 
-Mirror mode is the default. It sends translated events to Alitycs while leaving Google Analytics behavior intact:
+Host `dist/ga4.min.js` on your own origin or CDN. Mirror mode is the default: it sends translated
+events to Alitycs while leaving Google Analytics behavior intact:
 
 ```html
 <script
   async
-  src="https://cdn.alitycs.com/sdk@2/ga4.min.js"
+  src="/assets/alitycs/ga4.min.js"
   data-api-key="pk_live_replace_me"
   data-ga4-mode="mirror"
 ></script>
@@ -53,7 +54,7 @@ Use replace mode when Alitycs should be the analytics destination:
 ```html
 <script
   async
-  src="https://cdn.alitycs.com/sdk@2/ga4.min.js"
+  src="/assets/alitycs/ga4.min.js"
   data-api-key="pk_live_replace_me"
   data-ga4-mode="replace"
 ></script>

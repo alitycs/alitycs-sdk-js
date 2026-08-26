@@ -54,7 +54,7 @@ describe('Edge Cases and Error Scenarios', () => {
   describe('Missing or Invalid Configuration', () => {
     test('should handle missing API key', () => {
       const script = document.createElement('script');
-      script.src = 'https://cdn.alitycs.com/snippet.js';
+      script.src = 'https://cdn.example.com/alitycs/snippet.js';
       // No data-api-key attribute
       document.head.appendChild(script);
 
@@ -108,7 +108,7 @@ describe('Edge Cases and Error Scenarios', () => {
     test('should handle network error', async () => {
       const config: SnippetConfig = {
         apiKey: 'test_key',
-        sdkUrl: 'https://cdn.alitycs.com/sdk.js',
+        sdkUrl: 'https://cdn.example.com/sdk.js',
         autoTrack: false,
         debug: false,
       };
@@ -124,7 +124,7 @@ describe('Edge Cases and Error Scenarios', () => {
     test('should allow retry after failure', async () => {
       const config: SnippetConfig = {
         apiKey: 'test_key',
-        sdkUrl: 'https://cdn.alitycs.com/sdk.js',
+        sdkUrl: 'https://cdn.example.com/sdk.js',
         autoTrack: false,
         debug: false,
       };
@@ -145,7 +145,7 @@ describe('Edge Cases and Error Scenarios', () => {
     test('should log error on failure', async () => {
       const config: SnippetConfig = {
         apiKey: 'test_key',
-        sdkUrl: 'https://cdn.alitycs.com/sdk.js',
+        sdkUrl: 'https://cdn.example.com/sdk.js',
         autoTrack: false,
         debug: false,
       };
@@ -164,7 +164,7 @@ describe('Edge Cases and Error Scenarios', () => {
     test('should handle concurrent load() calls', async () => {
       const config: SnippetConfig = {
         apiKey: 'test_key',
-        sdkUrl: 'https://cdn.alitycs.com/sdk.js',
+        sdkUrl: 'https://cdn.example.com/sdk.js',
         autoTrack: false,
         debug: false,
       };
@@ -213,7 +213,7 @@ describe('Edge Cases and Error Scenarios', () => {
       const queue = new CallQueue();
       const config: SnippetConfig = {
         apiKey: 'test_key',
-        sdkUrl: 'https://cdn.alitycs.com/sdk.js',
+        sdkUrl: 'https://cdn.example.com/sdk.js',
         autoTrack: false,
         debug: false,
       };
@@ -296,7 +296,7 @@ describe('Edge Cases and Error Scenarios', () => {
     test('should append to head if no script tags exist', async () => {
       const config: SnippetConfig = {
         apiKey: 'test_key',
-        sdkUrl: 'https://cdn.alitycs.com/sdk.js',
+        sdkUrl: 'https://cdn.example.com/sdk.js',
         autoTrack: false,
         debug: false,
       };
@@ -313,7 +313,7 @@ describe('Edge Cases and Error Scenarios', () => {
 
       // Verify the mock script was appended to head
       expect(document.head.contains(mockScript)).toBe(true);
-      expect(mockScript.src).toBe('https://cdn.alitycs.com/sdk.js');
+      expect(mockScript.src).toBe('https://cdn.example.com/sdk.js');
 
       mockScript.onload();
       await promise;
@@ -322,7 +322,7 @@ describe('Edge Cases and Error Scenarios', () => {
     test('should insert before first script when scripts exist', async () => {
       const config: SnippetConfig = {
         apiKey: 'test_key',
-        sdkUrl: 'https://cdn.alitycs.com/sdk.js',
+        sdkUrl: 'https://cdn.example.com/sdk.js',
         autoTrack: false,
         debug: false,
       };
@@ -381,7 +381,7 @@ describe('Edge Cases and Error Scenarios', () => {
     test('should reset state after failure', async () => {
       const config: SnippetConfig = {
         apiKey: 'test_key',
-        sdkUrl: 'https://cdn.alitycs.com/sdk.js',
+        sdkUrl: 'https://cdn.example.com/sdk.js',
         autoTrack: false,
         debug: false,
       };
@@ -400,7 +400,7 @@ describe('Edge Cases and Error Scenarios', () => {
     test('should succeed on retry after failure', async () => {
       const config: SnippetConfig = {
         apiKey: 'test_key',
-        sdkUrl: 'https://cdn.alitycs.com/sdk.js',
+        sdkUrl: 'https://cdn.example.com/sdk.js',
         autoTrack: false,
         debug: false,
       };
@@ -424,7 +424,7 @@ describe('Edge Cases and Error Scenarios', () => {
     test('should clean up listeners on successful load after setup', async () => {
       const config: SnippetConfig = {
         apiKey: 'test_key',
-        sdkUrl: 'https://cdn.alitycs.com/sdk.js',
+        sdkUrl: 'https://cdn.example.com/sdk.js',
         autoTrack: false,
         debug: false,
       };
@@ -448,7 +448,7 @@ describe('Edge Cases and Error Scenarios', () => {
       const queue = new CallQueue();
       const config: SnippetConfig = {
         apiKey: 'test_key',
-        sdkUrl: 'https://cdn.alitycs.com/sdk.js',
+        sdkUrl: 'https://cdn.example.com/sdk.js',
         autoTrack: false,
         debug: true, // Debug enabled but console.log missing
       };

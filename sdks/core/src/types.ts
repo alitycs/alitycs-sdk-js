@@ -5,6 +5,8 @@ export interface AlitycsConfig {
   flushSize?: number;
   maxQueueSize?: number;
   maxRetries?: number;
+  /** Per-request abort timeout in milliseconds. Defaults to 10_000. */
+  requestTimeout?: number;
   debug?: boolean;
   sessionTimeout?: number;
   batching?: boolean;
@@ -17,6 +19,8 @@ export interface ResolvedConfig {
   flushSize: number;
   maxQueueSize: number;
   maxRetries: number;
+  /** Per-request abort timeout in milliseconds. Defaults to 10_000. */
+  requestTimeout?: number;
   debug: boolean;
   sessionTimeout: number;
   batching: boolean;

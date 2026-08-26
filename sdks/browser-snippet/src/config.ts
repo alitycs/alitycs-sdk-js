@@ -7,27 +7,26 @@ import { DEFAULT_SDK_URL } from './build-constants';
 
 export { DEFAULT_SDK_URL };
 
+function findSnippetScript(): HTMLScriptElement | null {
+  // Prefer the script that is currently executing us; fall back to scanning the page.
+  const current = document.currentScript as HTMLScriptElement | null;
+  if (current) return current;
+
+  const scripts = document.getElementsByTagName('script');
+  for (let i = 0; i < scripts.length; i++) {
+    const script = scripts[i];
+    if (script.hasAttribute('data-api-key') || (script.src && script.src.includes('alitycs'))) {
+      return script;
+    }
+  }
+  return null;
+}
+
 /**
  * Parse configuration from the current script tag
  */
 export function parseScriptConfig(): SnippetConfig {
-  // Find the snippet script tag
-  const scripts = document.getElementsByTagName('script');
-  let snippetScript: HTMLScriptElement | null = null;
-
-  // Look for script with data-api-key or containing 'alitycs'
-  for (let i = 0; i < scripts.length; i++) {
-    const script = scripts[i];
-    if (script.hasAttribute('data-api-key') || (script.src && script.src.includes('alitycs'))) {
-      snippetScript = script;
-      break;
-    }
-  }
-
-  // Fallback to document.currentScript
-  if (!snippetScript && document.currentScript) {
-    snippetScript = document.currentScript as HTMLScriptElement;
-  }
+  const snippetScript = findSnippetScript();
 
   if (!snippetScript) {
     console.error('[Alitycs] Could not find snippet script tag');

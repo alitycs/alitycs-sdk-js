@@ -90,6 +90,35 @@ describe('serializeProperties', () => {
     });
   });
 
+  test('replaces circular references with a placeholder instead of throwing', () => {
+    const circular: Record<string, unknown> = { name: 'loop' };
+    circular.self = circular;
+
+    expect(() => serializeProperties({ data: circular })).not.toThrow();
+    expect(serializeProperties({ data: circular })).toEqual({ data: '[unserializable]' });
+  });
+
+  test('replaces nested BigInt with a placeholder instead of throwing', () => {
+    const result = serializeProperties({ data: { big: BigInt(1), huge: 9007199254740993n } });
+    expect(result).toEqual({ data: '[unserializable]' });
+  });
+
+  test('a throwing property does not prevent later properties from serializing', () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+
+    const result = serializeProperties({ bad: circular, good: 'ok' });
+    expect(result.good).toBe('ok');
+    expect(result.bad).toBe('[unserializable]');
+  });
+
+  test('stringifies top-level BigInt and Symbol values without throwing', () => {
+    expect(serializeProperties({ count: BigInt(42), id: Symbol('a') })).toEqual({
+      count: '42',
+      id: 'Symbol(a)',
+    });
+  });
+
   test('returns empty object for empty input', () => {
     expect(serializeProperties({})).toEqual({});
   });

@@ -18,6 +18,18 @@ const BROWSER_DEFAULTS = {
   autoCapture: false,
 };
 
+/**
+ * Auto-captured page views share the GA4 bridge's `ga4:page_view:<location>` dedupe key so a
+ * single navigation produces exactly one event when the bridge, autoCapture, or both are enabled.
+ */
+const PAGE_VIEW_DEDUPE_MS = 1000;
+
+function pageViewDedupeOptions(url: unknown): EventOptions | undefined {
+  return typeof url === 'string' && url
+    ? { dedupeKey: `ga4:page_view:${url}`, dedupeWindowMs: PAGE_VIEW_DEDUPE_MS }
+    : undefined;
+}
+
 export class BrowserAlitycs extends Alitycs {
   private autoCapture: AutoCapture | null = null;
   private pageHideHandler: EventListener | null = null;
@@ -29,8 +41,11 @@ export class BrowserAlitycs extends Alitycs {
     if (browserConfig.autoCapture) {
       this.autoCapture = new AutoCapture(
         (name, props) => this.track(name, props),
-        (props, capturedAt) =>
-          capturedAt === undefined ? this.page(undefined, props) : this.pageAt(capturedAt, undefined, props)
+        (props, capturedAt) => {
+          const options = pageViewDedupeOptions(props.url);
+          if (capturedAt === undefined) this.page(undefined, props, options);
+          else this.pageAt(capturedAt, undefined, props, options);
+        }
       );
       this.autoCapture.start(initialPage);
     }

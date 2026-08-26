@@ -16,6 +16,7 @@ import {
   track,
 } from '../../src/index';
 import type { BatchPayload } from '@alitycs/core';
+import { installGa4Bridge, type Ga4BridgeHandle } from '../../src/ga4';
 
 describe('BrowserAlitycs', () => {
   let originalFetch: typeof globalThis.fetch;
@@ -122,6 +123,37 @@ describe('BrowserAlitycs', () => {
     });
 
     await sdk.shutdown();
+  });
+
+  test('GA4 bridge + autoCapture enabled together yield exactly one pageview per navigation', async () => {
+    const win = globalThis as any;
+    // Make pushState move location.href so each navigation carries a distinct page_view URL.
+    win.history.pushState = mock((_state: unknown, _unused: string, url?: string | URL | null) => {
+      if (url) win.window.location.href = new URL(String(url), 'http://localhost/').href;
+    });
+    let handle: Ga4BridgeHandle | undefined;
+    try {
+      const sdk = BrowserAlitycs.init({ apiKey: 'test-key', autoCapture: true, flushSize: 100 });
+      handle = installGa4Bridge(sdk);
+
+      // The bridge's deferred initial pageview must be deduped against autoCapture's.
+      await new Promise(resolve => setTimeout(resolve, 5));
+      await sdk.flush();
+
+      const pageEvents = () =>
+        sentPayloads.flatMap(payload => payload.events).filter(event => event.eventType === 'page');
+      expect(pageEvents().map(event => event.properties.url)).toEqual(['http://localhost/']);
+
+      win.history.pushState({}, '', '/next');
+      await new Promise(resolve => setTimeout(resolve, 5)); // bridge SPA handler fires on a microtask
+      await sdk.flush();
+
+      expect(pageEvents().map(event => event.properties.url)).toEqual(['http://localhost/', 'http://localhost/next']);
+
+      await sdk.shutdown();
+    } finally {
+      handle?.uninstall();
+    }
   });
 
   test('registers pagehide and visibilitychange handlers', () => {

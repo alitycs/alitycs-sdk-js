@@ -2,8 +2,8 @@
  * @alitycs/browser-snippet
  * Ultra-lightweight analytics snippet (~1KB) that loads the full SDK asynchronously
  *
- * Usage:
- * <script src="https://cdn.alitycs.com/snippet.min.js"
+ * Usage (self-host snippet.min.js and browser.min.js side by side):
+ * <script src="/assets/alitycs/snippet.min.js"
  *         data-api-key="YOUR_KEY"
  *         async></script>
  */

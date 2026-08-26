@@ -13,6 +13,26 @@ export interface CapturedPage {
   properties: Record<string, unknown>;
 }
 
+/** Click hrefs are capped and scrubbed of obvious PII (mailto targets, email-bearing query params). */
+const MAX_HREF_LENGTH = 500;
+const EMAIL_PATTERN = /^[\w.+-]+@[\w-]+\.[\w.-]+$/;
+
+function redactHref(href: string): string | undefined {
+  if (!href || href.startsWith('mailto:')) return undefined;
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return href.substring(0, MAX_HREF_LENGTH);
+  }
+  for (const key of [...url.searchParams.keys()]) {
+    const value = url.searchParams.get(key) ?? '';
+    if (/^email$/i.test(key) || EMAIL_PATTERN.test(value)) url.searchParams.delete(key);
+  }
+  const serialized = url.toString();
+  return serialized.substring(0, MAX_HREF_LENGTH);
+}
+
 export class AutoCapture {
   private listeners: Listener[] = [];
   private running = false;
@@ -103,7 +123,7 @@ export class AutoCapture {
         id: target.id || undefined,
         classes: (typeof target.className === 'string' && target.className) || undefined,
         text: target.textContent?.trim().substring(0, 100) || undefined,
-        href: (target as HTMLAnchorElement).href || undefined,
+        href: redactHref((target as HTMLAnchorElement).href || ''),
       });
     } catch {
       // Auto-capture should never break the page

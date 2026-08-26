@@ -33,7 +33,7 @@ describe('SDKLoader', () => {
 
     config = {
       apiKey: 'test_key',
-      sdkUrl: 'https://cdn.alitycs.com/sdk.js',
+      sdkUrl: 'https://cdn.example.com/sdk.js',
       autoTrack: true,
       debug: false,
     };
@@ -189,7 +189,7 @@ describe('SDKLoader', () => {
 
       const promise = (loader as any).performLoad();
 
-      expect(mockScript.src).toBe('https://cdn.alitycs.com/sdk.js');
+      expect(mockScript.src).toBe('https://cdn.example.com/sdk.js');
       expect(mockScript.async).toBe(true);
       expect(mockScript.defer).toBe(true);
 
