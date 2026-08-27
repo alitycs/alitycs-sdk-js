@@ -1,15 +1,19 @@
 import {
-  DEFAULTS,
   BatchManager,
   EventDeduplicator,
   HttpTransport,
   RESERVED_EVENT_NAMES,
   buildAnalyticsEvent,
   createLogger,
+  resolveAlitycsConfig,
+  validateRevenuePayload,
   validateEvent,
   type AnalyticsEvent,
   type EventType,
+  type FlushResult,
   type ResolvedConfig,
+  type AlitycsConfig,
+  type RevenuePayload,
 } from "@alitycs/core";
 
 /**
@@ -41,16 +45,11 @@ export interface ServerEventOptions {
   dedupeWindowMs?: number;
 }
 
-export interface AlitycsServerConfig {
+export interface AlitycsServerConfig extends Omit<
+  AlitycsConfig,
+  "apiKey" | "batching" | "sessionTimeout"
+> {
   apiKey: string;
-  endpoint?: string;
-  flushInterval?: number;
-  flushSize?: number;
-  maxQueueSize?: number;
-  maxRetries?: number;
-  /** Per-request abort timeout in milliseconds. Defaults to 10_000. */
-  requestTimeout?: number;
-  debug?: boolean;
   /**
    * Drain the queue after every emitting call, so a crashing request handler never
    * loses its event. Long-lived workers may set false and flush on their own cadence.
@@ -58,27 +57,9 @@ export interface AlitycsServerConfig {
   drainPerCall?: boolean;
 }
 
-interface ResolvedServerConfig {
-  apiKey: string;
-  endpoint: string;
-  flushInterval: number;
-  flushSize: number;
-  maxQueueSize: number;
-  maxRetries: number;
-  requestTimeout?: number;
-  debug: boolean;
+interface ResolvedServerConfig extends ResolvedConfig {
   drainPerCall: boolean;
 }
-
-const SERVER_DEFAULTS: Omit<ResolvedServerConfig, "apiKey"> = {
-  endpoint: DEFAULTS.endpoint,
-  flushInterval: DEFAULTS.flushInterval,
-  flushSize: DEFAULTS.flushSize,
-  maxQueueSize: DEFAULTS.maxQueueSize,
-  maxRetries: DEFAULTS.maxRetries,
-  debug: false,
-  drainPerCall: true,
-};
 
 const NON_BLANK = (value: string | undefined): string | undefined => {
   const trimmed = value?.trim();
@@ -103,19 +84,18 @@ export class AlitycsServer {
       requestTimeout: config.requestTimeout,
       logger: this.logger,
     });
-    this.batchManager = new BatchManager(
-      { ...DEFAULTS, ...config } as ResolvedConfig,
-      this.transport,
-      this.logger,
-    );
+    this.batchManager = new BatchManager(config, this.transport, this.logger);
     this.batchManager.start();
   }
 
   static init(config: AlitycsServerConfig): AlitycsServer {
-    if (!config.apiKey || config.apiKey.trim() === "") {
-      throw new Error("apiKey is required");
-    }
-    return new AlitycsServer({ ...SERVER_DEFAULTS, ...config });
+    const { drainPerCall = true, ...coreConfig } = config;
+    const resolved = resolveAlitycsConfig({
+      ...coreConfig,
+      batching: true,
+      sessionTimeout: 30 * 60 * 1000,
+    });
+    return new AlitycsServer({ ...resolved, drainPerCall });
   }
 
   track(
@@ -123,8 +103,26 @@ export class AlitycsServer {
     eventName: string,
     properties?: Record<string, unknown>,
     options?: ServerEventOptions,
-  ): Promise<void> {
+  ): Promise<FlushResult> {
     return this.enqueue(identity, "track", eventName, properties, options);
+  }
+
+  /** Emits an identify event while keeping identity explicit per call. */
+  identify(
+    identity: CallIdentity,
+    userId: string,
+    traits?: Record<string, unknown>,
+    options?: ServerEventOptions,
+  ): Promise<FlushResult> {
+    if (!NON_BLANK(userId))
+      throw new Error("identify requires a non-blank userId");
+    return this.enqueue(
+      identity,
+      "identify",
+      "identify",
+      { userId, ...traits },
+      options,
+    );
   }
 
   captureError(
@@ -132,8 +130,26 @@ export class AlitycsServer {
     errorName: string,
     properties?: Record<string, unknown>,
     options?: ServerEventOptions,
-  ): Promise<void> {
+  ): Promise<FlushResult> {
     return this.enqueue(identity, "error", errorName, properties, options);
+  }
+
+  /** Trusted revenue ingestion for server-only secret keys. */
+  trackRevenue(
+    identity: CallIdentity,
+    payload: RevenuePayload,
+    properties?: Record<string, unknown>,
+    options?: ServerEventOptions,
+  ): Promise<FlushResult> {
+    validateRevenuePayload(payload);
+    return this.enqueue(
+      identity,
+      "track",
+      `revenue_${payload.kind}`,
+      properties,
+      options,
+      payload,
+    );
   }
 
   /** Links `previousId` to this call's identity so downstream analytics merge the histories. */
@@ -141,7 +157,7 @@ export class AlitycsServer {
     identity: CallIdentity,
     previousId: string,
     options?: ServerEventOptions,
-  ): Promise<void> {
+  ): Promise<FlushResult> {
     if (!NON_BLANK(previousId))
       throw new Error("alias requires a non-blank previousId");
     return this.enqueue(
@@ -158,7 +174,7 @@ export class AlitycsServer {
     identity: CallIdentity,
     traits: Record<string, unknown>,
     options?: ServerEventOptions,
-  ): Promise<void> {
+  ): Promise<FlushResult> {
     assertTraits(traits);
     return this.enqueue(
       identity,
@@ -174,7 +190,7 @@ export class AlitycsServer {
     identity: CallIdentity,
     traits: Record<string, unknown>,
     options?: ServerEventOptions,
-  ): Promise<void> {
+  ): Promise<FlushResult> {
     assertTraits(traits);
     return this.enqueue(
       identity,
@@ -190,7 +206,7 @@ export class AlitycsServer {
     identity: CallIdentity,
     keys: string[],
     options?: ServerEventOptions,
-  ): Promise<void> {
+  ): Promise<FlushResult> {
     if (!Array.isArray(keys))
       throw new Error("unset requires an array of trait keys");
     const removable = keys.filter(
@@ -219,15 +235,26 @@ export class AlitycsServer {
     return this.shutDown;
   }
 
-  async flush(): Promise<void> {
-    await this.batchManager.flush();
+  flush(): Promise<FlushResult> {
+    return this.batchManager.flush();
   }
 
-  async shutdown(): Promise<void> {
+  shutdown(): Promise<FlushResult> {
     this.batchManager.stop();
-    await this.batchManager.drain();
-    this.deduplicator.clear();
-    this.shutDown = true;
+    return this.batchManager.drain().then((result) => {
+      if (result.status !== "drained") this.batchManager.releasePersistence();
+      this.deduplicator.clear();
+      this.shutDown = true;
+      return result;
+    });
+  }
+
+  stats() {
+    return this.batchManager.stats();
+  }
+
+  quarantinedEvents() {
+    return this.batchManager.quarantinedEvents();
   }
 
   /**
@@ -241,7 +268,8 @@ export class AlitycsServer {
     name: string,
     properties: Record<string, unknown> | undefined,
     options: ServerEventOptions | undefined,
-  ): Promise<void> {
+    revenue?: RevenuePayload,
+  ): Promise<FlushResult> {
     if (this.shutDown)
       throw new Error("Client has been shut down; init() a new instance");
     if (!name || name.trim() === "") throw new Error("Event name is required");
@@ -261,7 +289,11 @@ export class AlitycsServer {
         options.dedupeWindowMs ?? 500,
       )
     ) {
-      return Promise.resolve();
+      return Promise.resolve({
+        status: "drained",
+        delivered: 0,
+        pending: this.pending,
+      });
     }
 
     // No ambient session exists server-side; no cross-call timestamp clamp either —
@@ -272,6 +304,7 @@ export class AlitycsServer {
       userId,
       anonymousId: anonymousId ?? "",
       properties,
+      revenue,
       dedupeKey: options?.dedupeKey,
     });
 
@@ -279,7 +312,28 @@ export class AlitycsServer {
     if (rejection) throw new Error(`Invalid analytics event: ${rejection}`);
 
     this.batchManager.add(event);
-    return this.config.drainPerCall ? this.flush() : Promise.resolve();
+    if (!this.config.drainPerCall) {
+      return Promise.resolve({
+        status: this.pending === 0 ? "drained" : "partial",
+        delivered: 0,
+        pending: this.pending,
+      });
+    }
+    return this.batchManager.drain().then((result) => {
+      if (result.status !== "drained" && this.config.persistence === false) {
+        throw new AlitycsDeliveryError(result);
+      }
+      return result;
+    });
+  }
+}
+
+export class AlitycsDeliveryError extends Error {
+  constructor(public readonly result: FlushResult) {
+    super(
+      `Alitycs delivery did not drain (${result.status}, ${result.pending} pending event(s))`,
+    );
+    this.name = "AlitycsDeliveryError";
   }
 }
 

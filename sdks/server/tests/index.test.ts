@@ -1,6 +1,10 @@
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
-import { AlitycsServer } from "../src/index";
-import type { BatchPayload } from "@alitycs/core";
+import { AlitycsDeliveryError, AlitycsServer } from "../src/index";
+import {
+  MemoryEventStorage,
+  eventStorageKey,
+  type BatchPayload,
+} from "@alitycs/core";
 
 describe("AlitycsServer", () => {
   let originalFetch: typeof globalThis.fetch;
@@ -199,6 +203,114 @@ describe("AlitycsServer", () => {
     await sdk.flush();
     expect(sentPayloads.flatMap((payload) => payload.events).length).toBe(2);
 
+    await sdk.shutdown();
+  });
+
+  test("drainPerCall drains concurrent calls as one delivery sequence", async () => {
+    const sdk = client();
+    const results = await Promise.all([
+      sdk.track({ anonymousId: "a" }, "concurrent_one"),
+      sdk.track({ anonymousId: "b" }, "concurrent_two"),
+    ]);
+
+    expect(results.every((result) => result.status === "drained")).toBe(true);
+    expect(sentPayloads.flatMap((payload) => payload.events)).toHaveLength(2);
+    await sdk.shutdown();
+  });
+
+  test("drainPerCall throws AlitycsDeliveryError when a non-persisted delivery pauses", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json(
+        { error: "try later", code: "rate_limited" },
+        { status: 429, headers: { "Retry-After": "60" } },
+      ),
+    ) as any;
+    const sdk = AlitycsServer.init({ apiKey: "test-key", maxRetries: 0 });
+
+    const failure = sdk.track({ anonymousId: "a" }, "must_deliver");
+    await expect(failure).rejects.toBeInstanceOf(AlitycsDeliveryError);
+    await expect(failure).rejects.toMatchObject({
+      result: { status: "paused", pending: 1 },
+    });
+
+    await sdk.shutdown();
+  });
+
+  test("persistence makes a paused per-call result observable without throwing", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json(
+        { error: "try later", code: "rate_limited" },
+        { status: 429, headers: { "Retry-After": "60" } },
+      ),
+    ) as any;
+    const storage = new MemoryEventStorage();
+    const sdk = AlitycsServer.init({
+      apiKey: "test-key",
+      maxRetries: 0,
+      persistence: { storage },
+    });
+
+    const result = await sdk.track({ anonymousId: "a" }, "persist_me");
+    expect(result.status).toBe("paused");
+    expect(result.pending).toBe(1);
+    expect(
+      storage.getItem(
+        eventStorageKey("https://api.alitycs.com/events", "test-key"),
+      ),
+    ).toContain("persist_me");
+    expect(sdk.stats().pausedUntil).toBeGreaterThan(Date.now());
+
+    await sdk.shutdown();
+  });
+
+  test("typed monthly quota responses are treated as already accepted", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json(
+        {
+          error: "Monthly event quota exceeded",
+          code: "monthly_event_quota_exceeded",
+          resetAt: "2026-09-01T00:00:00Z",
+        },
+        { status: 429 },
+      ),
+    ) as any;
+    const sdk = client();
+
+    const result = await sdk.track({ anonymousId: "a" }, "already_ingested");
+    expect(result).toEqual({ status: "drained", delivered: 0, pending: 0 });
+    expect(sdk.stats()).toMatchObject({
+      acceptedQuotaExceeded: 1,
+      rateLimited: 0,
+    });
+    expect(sentPayloads).toHaveLength(0);
+    await sdk.shutdown();
+  });
+
+  test("trackRevenue emits the trusted revenue payload", async () => {
+    const sdk = client();
+
+    await sdk.trackRevenue(
+      { anonymousId: "a" },
+      {
+        version: 1,
+        kind: "transaction",
+        factId: "order_1",
+        amount: "19.99",
+        currency: "USD",
+      },
+      { source: "checkout" },
+    );
+
+    expect(sentPayloads[0].events[0]).toMatchObject({
+      event: "revenue_transaction",
+      revenue: {
+        version: 1,
+        kind: "transaction",
+        factId: "order_1",
+        amount: "19.99",
+        currency: "USD",
+      },
+    });
     await sdk.shutdown();
   });
 

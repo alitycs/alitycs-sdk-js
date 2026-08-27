@@ -1,9 +1,4 @@
-import type {
-  AnalyticsEvent,
-  EventContext,
-  EventType,
-  RevenuePayload,
-} from './types';
+import type { AnalyticsEvent, EventContext, EventType, RevenuePayload } from './types';
 import { collectContext } from './context';
 import { generateId, serializeProperties } from './utils';
 

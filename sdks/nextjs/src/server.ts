@@ -1,4 +1,13 @@
-import { Alitycs, DEFAULTS, type AlitycsConfig, type ResolvedConfig, type RevenuePayload } from '@alitycs/core';
+import {
+  Alitycs,
+  resolveAlitycsConfig,
+  type AlitycsConfig,
+  type DeliveryStats,
+  type FlushResult,
+  type QuarantinedEvent,
+  type ResolvedConfig,
+  type RevenuePayload,
+} from '@alitycs/core';
 
 /**
  * Server-side tracking for Next.js: route handlers, server actions, and
@@ -44,7 +53,7 @@ class ScopedIdentityClient extends Alitycs {
   static override init(config: AlitycsConfig): ScopedIdentityClient {
     // Callers go through AlitycsServer.resolve(), which has already produced a
     // clear error for a missing key.
-    return new ScopedIdentityClient({ ...DEFAULTS, ...config } as ResolvedConfig);
+    return new ScopedIdentityClient(resolveAlitycsConfig(config));
   }
 
   /**
@@ -60,6 +69,10 @@ class ScopedIdentityClient extends Alitycs {
   /** The user id currently attached to every emitted event, if any. */
   get actingUserId(): string | undefined {
     return this.identity.userId;
+  }
+
+  get persistenceEnabled(): boolean {
+    return this.config.persistence !== false;
   }
 
   /**
@@ -114,15 +127,19 @@ export class AlitycsServer {
     return this.resolve().pending;
   }
 
-  track(eventName: string, properties?: Record<string, unknown>, options?: ServerEventOptions): Promise<void> {
+  track(eventName: string, properties?: Record<string, unknown>, options?: ServerEventOptions): Promise<FlushResult> {
     return this.emit(options?.userId, client => client.track(eventName, properties, options));
   }
 
-  captureError(errorName: string, properties?: Record<string, unknown>, options?: ServerEventOptions): Promise<void> {
+  captureError(
+    errorName: string,
+    properties?: Record<string, unknown>,
+    options?: ServerEventOptions
+  ): Promise<FlushResult> {
     return this.emit(options?.userId, client => client.captureError(errorName, properties, options));
   }
 
-  page(name?: string, properties?: Record<string, unknown>, options?: ServerEventOptions): Promise<void> {
+  page(name?: string, properties?: Record<string, unknown>, options?: ServerEventOptions): Promise<FlushResult> {
     return this.emit(options?.userId, client => client.page(name, properties, options));
   }
 
@@ -131,7 +148,7 @@ export class AlitycsServer {
    * {@link reset} or another identify. Emits an `identify` event, like every
    * other SDK.
    */
-  identify(userId: string, traits?: Record<string, unknown>): Promise<void> {
+  identify(userId: string, traits?: Record<string, unknown>): Promise<FlushResult> {
     return this.emit(undefined, client => client.identify(userId, traits));
   }
 
@@ -140,7 +157,7 @@ export class AlitycsServer {
     payload: RevenuePayload,
     properties?: Record<string, unknown>,
     options?: ServerEventOptions
-  ): Promise<void> {
+  ): Promise<FlushResult> {
     return this.emit(options?.userId, client => client.trackRevenue(payload, properties));
   }
 
@@ -165,7 +182,7 @@ export class AlitycsServer {
     this.resolve().clearGlobalProperties();
   }
 
-  flush(): Promise<void> {
+  flush(): Promise<FlushResult> {
     return this.resolve().flush();
   }
 
@@ -174,11 +191,19 @@ export class AlitycsServer {
    * re-initialises from environment or {@link configureAlitycs}. Safe to call
    * at the end of a serverless invocation; nothing enqueued before it is lost.
    */
-  shutdown(): Promise<void> {
+  shutdown(): Promise<FlushResult> {
     const client = instance;
-    if (!client) return Promise.resolve();
+    if (!client) return Promise.resolve({ status: 'drained', delivered: 0, pending: 0 });
     instance = undefined;
     return client.shutdown();
+  }
+
+  stats(): DeliveryStats {
+    return this.resolve().stats();
+  }
+
+  quarantinedEvents(): QuarantinedEvent[] {
+    return this.resolve().quarantinedEvents();
   }
 
   protected resolve(): ScopedIdentityClient {
@@ -191,11 +216,12 @@ export class AlitycsServer {
         );
       }
       const endpoint = overrideEndpoint ?? readEnv(ENV_ENDPOINT);
-      instance = ScopedIdentityClient.init({
+      const resolved = resolveAlitycsConfig({
         ...(rest as Omit<AlitycsConfig, 'apiKey' | 'endpoint'>),
         ...(endpoint ? { endpoint } : {}),
         apiKey,
       });
+      instance = ScopedIdentityClient.init(resolved);
     }
     return instance;
   }
@@ -210,7 +236,7 @@ export class AlitycsServer {
    * more than a rejected promise nobody awaited — and the returned promise is
    * only ever the drain.
    */
-  private emit(userId: string | undefined, write: (client: ScopedIdentityClient) => void): Promise<void> {
+  private emit(userId: string | undefined, write: (client: ScopedIdentityClient) => void): Promise<FlushResult> {
     const client = this.resolve();
     const previous = client.actingUserId;
     const switching = userId !== undefined && userId !== previous;
@@ -220,7 +246,19 @@ export class AlitycsServer {
     } finally {
       if (switching) client.actingUserId = previous;
     }
-    return client.flush();
+    return client.drain().then(result => {
+      if (result.status !== 'drained' && !client.persistenceEnabled) {
+        throw new AlitycsDeliveryError(result);
+      }
+      return result;
+    });
+  }
+}
+
+export class AlitycsDeliveryError extends Error {
+  constructor(public readonly result: FlushResult) {
+    super(`Alitycs delivery did not drain (${result.status}, ${result.pending} pending event(s))`);
+    this.name = 'AlitycsDeliveryError';
   }
 }
 

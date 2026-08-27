@@ -24,11 +24,18 @@ export interface TransportResult {
   status?: number;
   /** True when a later attempt may succeed (network error, timeout, 429, 5xx retries exhausted). */
   transient: boolean;
+  /** Server-directed delay, never capped; the batch manager persists the resulting deadline. */
+  retryAfterMs?: number;
+  /** Machine-readable response body code, when the server supplied one. */
+  code?: string;
+  /** Best-effort response or network error description. */
+  message?: string;
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
-/** Upper bound for any single retry delay, including a server-suggested Retry-After. */
+/** Normal exponential backoff remains bounded; Retry-After uses the separate 60s slice rule. */
 const MAX_BACKOFF_MS = 10_000;
+const MAX_SLEEP_SLICE_MS = 60_000;
 
 export class HttpTransport {
   constructor(private config: TransportConfig) {}
@@ -38,15 +45,18 @@ export class HttpTransport {
     const timeout = this.config.requestTimeout ?? DEFAULT_TIMEOUT_MS;
     let lastError: string | undefined;
     let retryAfterMs: number | null = null;
+    let lastStatus: number | undefined;
+    let lastCode: string | undefined;
     const maxRetries = options.maxRetries ?? this.config.maxRetries;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (attempt > 0) {
         const backoff = Math.min(1000 * 2 ** (attempt - 1), MAX_BACKOFF_MS);
         // A 429's Retry-After (seconds or HTTP-date) replaces the default schedule for
-        // the next attempt only; the cap still applies so a hostile header cannot
-        // stall delivery indefinitely.
-        await (this.config.sleep ?? sleep)(retryAfterMs === null ? backoff : Math.min(retryAfterMs, MAX_BACKOFF_MS));
+        // the next attempt. Long server deadlines are slept in bounded chunks, but the
+        // deadline itself is never truncated.
+        if (retryAfterMs === null) await (this.config.sleep ?? sleep)(backoff);
+        else await sleepUntil(retryAfterMs, this.config.sleep ?? sleep);
         retryAfterMs = null;
       }
 
@@ -67,20 +77,37 @@ export class HttpTransport {
         if (response.ok) return { ok: true, status: response.status, transient: false };
 
         const status = response.status;
+        lastStatus = status;
+        const errorBody = await readErrorBody(response);
+        lastCode = errorBody.code;
+        lastError = errorBody.message ?? `HTTP ${status}: ${response.statusText}`;
 
         // 4xx (except 429) — permanent rejection, don't retry
         if (status >= 400 && status < 500 && status !== 429) {
           this.config.logger.warn(`Transport: ${status} ${response.statusText} — not retrying`);
-          return { ok: false, status, transient: false };
+          return { ok: false, status, transient: false, code: lastCode, message: lastError };
         }
 
-        // 429 or 5xx — retry
+        // The worker publishes monthly-quota 429s after Kafka acceptance. Those events
+        // must never be replayed, even if the HTTP response is itself retryable by status.
         if (status === 429) {
-          retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
+          retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after')) ?? parseBodyRetryAfter(errorBody);
+          if (lastCode === 'monthly_event_quota_exceeded') {
+            return {
+              ok: false,
+              status,
+              transient: false,
+              retryAfterMs: retryAfterMs ?? undefined,
+              code: lastCode,
+              message: lastError,
+            };
+          }
         }
-        lastError = `HTTP ${status}: ${response.statusText}`;
       } catch (err) {
         lastError = err instanceof Error ? err.message : String(err);
+        lastStatus = undefined;
+        lastCode = undefined;
+        retryAfterMs = null;
       } finally {
         clearTimeout(timer);
       }
@@ -93,12 +120,48 @@ export class HttpTransport {
     if (lastError !== undefined) {
       this.config.logger.warn('Transport: all retries exhausted', lastError);
     }
-    return { ok: false, transient: true };
+    return {
+      ok: false,
+      ...(lastStatus !== undefined ? { status: lastStatus } : {}),
+      transient: true,
+      ...(retryAfterMs !== null ? { retryAfterMs } : {}),
+      ...(lastCode ? { code: lastCode } : {}),
+      ...(lastError ? { message: lastError } : {}),
+    };
   }
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function sleepUntil(delayMs: number, wait: (ms: number) => Promise<void>): Promise<void> {
+  let remaining = Math.max(0, delayMs);
+  while (remaining > 0) {
+    const slice = Math.min(remaining, MAX_SLEEP_SLICE_MS);
+    await wait(slice);
+    remaining -= slice;
+  }
+}
+
+async function readErrorBody(response: Response): Promise<{ code?: string; message?: string; retryAfterMs?: number }> {
+  try {
+    const parsed = JSON.parse(await response.clone().text()) as Record<string, unknown>;
+    return {
+      code: typeof parsed.code === 'string' ? parsed.code : undefined,
+      message: typeof parsed.error === 'string' ? parsed.error : undefined,
+      retryAfterMs:
+        typeof parsed.retry_after_seconds === 'number' && Number.isFinite(parsed.retry_after_seconds)
+          ? Math.max(0, parsed.retry_after_seconds * 1000)
+          : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function parseBodyRetryAfter(body: { retryAfterMs?: number }): number | null {
+  return body.retryAfterMs ?? null;
 }
 
 /**

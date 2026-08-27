@@ -6,29 +6,17 @@ import type {
   EventOptions,
   EventContext,
   RevenuePayload,
+  DeliveryStats,
 } from './types';
 import { generateId, UTM_KEYS, utmParam } from './utils';
 import { HttpTransport } from './transport';
-import { BatchManager } from './batch-manager';
 import { SessionManager } from './session';
 import { createLogger, type Logger } from './logger';
 import { EventDeduplicator } from './dedup';
-import {
-  RESERVED_EVENT_NAMES,
-  buildAnalyticsEvent,
-  validateEvent,
-} from './event';
-
-export const DEFAULTS: Omit<ResolvedConfig, 'apiKey'> = {
-  endpoint: 'https://api.alitycs.com/events',
-  flushInterval: 10_000,
-  flushSize: 25,
-  maxQueueSize: 1000,
-  maxRetries: 3,
-  debug: false,
-  sessionTimeout: 30 * 60 * 1000,
-  batching: true,
-};
+import { resolveAlitycsConfig } from './config';
+import { DiagnosticsHub, type DiagnosticsSink } from './diagnostics';
+import { BatchManager, type BatchFlushOptions, type FlushResult, type QuarantinedEvent } from './batch-manager';
+import { RESERVED_EVENT_NAMES, buildAnalyticsEvent, validateEvent } from './event';
 
 // Client-side event limits and wire-event construction live in ./event.ts, shared with
 // the stateless server client so both surfaces emit byte-identical payloads.
@@ -39,12 +27,18 @@ export class Alitycs {
   protected batchManager: BatchManager | null = null;
   protected sessionManager: SessionManager;
   protected logger: Logger;
+  protected diagnostics: DiagnosticsHub;
   private userId: string | undefined;
   private inFlight = new Set<Promise<void>>();
   private globalProperties: Record<string, unknown> = {};
   private deduplicator = new EventDeduplicator();
   private lastEventTimestamp = 0;
   private droppedCount = 0;
+  private nonBatchDelivered = 0;
+  private nonBatchFailed = 0;
+  private nonBatchDeduplicated = 0;
+  private nonBatchLastError: DeliveryStats['lastError'] = null;
+  private acceptedEventGeneration = 0;
   private shutDown = false;
 
   protected constructor(config: ResolvedConfig) {
@@ -53,6 +47,7 @@ export class Alitycs {
     }
     this.config = config;
     this.logger = createLogger(config.debug);
+    this.diagnostics = new DiagnosticsHub(config.onDiagnostics, this.logger);
     this.transport = new HttpTransport({
       endpoint: config.endpoint,
       apiKey: config.apiKey,
@@ -68,7 +63,9 @@ export class Alitycs {
     this.userId = this.sessionManager.getSession().userId;
 
     if (config.batching) {
-      this.batchManager = new BatchManager(config, this.transport, this.logger);
+      this.batchManager = new BatchManager(config, this.transport, this.logger, this.diagnostics, () =>
+        this.onDeliveryStateChanged()
+      );
       this.batchManager.start();
     }
   }
@@ -77,7 +74,7 @@ export class Alitycs {
     if (!config.apiKey || config.apiKey.trim() === '') {
       throw new Error('apiKey is required');
     }
-    const resolved: ResolvedConfig = { ...DEFAULTS, ...config } as ResolvedConfig;
+    const resolved = resolveAlitycsConfig(config);
     return new Alitycs(resolved);
   }
 
@@ -130,9 +127,7 @@ export class Alitycs {
    * because event property values are always strings on the wire.
    */
   unset(keys: string[], options?: EventOptions): void {
-    const removable = Array.isArray(keys)
-      ? keys.filter(key => typeof key === 'string' && key.trim() !== '')
-      : [];
+    const removable = Array.isArray(keys) ? keys.filter(key => typeof key === 'string' && key.trim() !== '') : [];
     if (removable.length === 0) return;
     this.enqueue('identify', RESERVED_EVENT_NAMES.unset, { $keys: JSON.stringify(removable) }, options);
   }
@@ -194,34 +189,80 @@ export class Alitycs {
     this.globalProperties = {};
   }
 
-  async flush(): Promise<void> {
+  async flush(options: BatchFlushOptions = {}): Promise<FlushResult> {
     if (this.batchManager) {
-      await this.batchManager.flush();
+      return this.batchManager.flush(options);
     } else {
       await Promise.all(this.inFlight);
+      return {
+        status: 'drained',
+        delivered: 0,
+        pending: 0,
+      };
     }
   }
 
-  protected flushForPageExit(): void {
+  /** Drains all currently outstanding batches; adapters use this for per-request delivery. */
+  async drain(options: BatchFlushOptions = {}): Promise<FlushResult> {
+    if (this.batchManager) return this.batchManager.drain(options);
+    await Promise.all(this.inFlight);
+    return { status: 'drained', delivered: 0, pending: 0 };
+  }
+
+  protected flushForPageExit(): Promise<FlushResult> {
     if (this.batchManager) {
-      void this.batchManager.flush({
+      return this.batchManager.flush({
         keepalive: true,
         maxPayloadBytes: 60_000,
         maxRetries: 0,
+        force: true,
       });
     }
+    return Promise.resolve({ status: 'drained', delivered: 0, pending: 0 });
   }
 
-  async shutdown(): Promise<void> {
+  protected saveNowForPageExit(): void {
+    this.batchManager?.saveNow();
+  }
+
+  protected rearmAfterPageShow(): void {
+    this.batchManager?.rearm();
+  }
+
+  protected get deliveryGeneration(): number {
+    return this.acceptedEventGeneration;
+  }
+
+  protected get hasPendingDelivery(): boolean {
+    return this.batchManager?.hasOutstanding ?? this.inFlight.size > 0;
+  }
+
+  /** Hook for browser adapters that need to arm lifecycle listeners after a valid event. */
+  protected onEventAccepted(): void {}
+
+  /** Hook for adapters that need to react when queued/in-flight delivery settles. */
+  protected onDeliveryStateChanged(): void {}
+
+  protected markEventAccepted(): void {
+    this.acceptedEventGeneration++;
+    this.onEventAccepted();
+  }
+
+  async shutdown(): Promise<FlushResult> {
     if (this.batchManager) {
       this.batchManager.stop();
       // Drain rather than flush once: a payload-bounded send can leave a remainder.
-      await this.batchManager.drain();
+      const result = await this.batchManager.drain();
+      if (result.status !== 'drained') this.batchManager.releasePersistence();
+      this.deduplicator.clear();
+      this.shutDown = true;
+      return result;
     } else {
       await Promise.all(this.inFlight);
     }
     this.deduplicator.clear();
     this.shutDown = true;
+    return { status: 'drained', delivered: 0, pending: 0 };
   }
 
   /** True once shutdown() has completed; a shut-down client must not be reused. */
@@ -241,6 +282,39 @@ export class Alitycs {
     return this.droppedCount;
   }
 
+  stats(): DeliveryStats {
+    if (this.batchManager) return this.batchManager.stats();
+    return {
+      queueDepth: 0,
+      inFlight: this.inFlight.size,
+      quarantined: 0,
+      poisonIsolated: 0,
+      lastError: this.nonBatchLastError,
+      delivered: this.nonBatchDelivered,
+      failedDeliveries: this.nonBatchFailed,
+      requeued: 0,
+      retries: 0,
+      rateLimited: 0,
+      acceptedQuotaExceeded: 0,
+      droppedOverflow: 0,
+      droppedInvalid: this.droppedCount,
+      droppedRejected: 0,
+      droppedDrainGiveUp: 0,
+      droppedTotal: this.droppedCount,
+      deduplicated: this.nonBatchDeduplicated,
+      restoredFromStorage: 0,
+    };
+  }
+
+  quarantinedEvents(): QuarantinedEvent[] {
+    return this.batchManager?.quarantinedEvents() ?? [];
+  }
+
+  /** Adds a diagnostics sink without changing the client's configuration identity. */
+  addDiagnosticsListener(sink: DiagnosticsSink): () => void {
+    return this.diagnostics.subscribe(sink);
+  }
+
   private enqueue(
     type: EventType,
     name: string,
@@ -251,6 +325,11 @@ export class Alitycs {
     revenue?: RevenuePayload
   ): void {
     if (options?.dedupeKey && this.deduplicator.isDuplicate(options.dedupeKey, options.dedupeWindowMs ?? 500)) {
+      if (this.batchManager) this.batchManager.recordDeduplicated();
+      else {
+        this.nonBatchDeduplicated++;
+        this.diagnostics.emit({ code: 'deduplicated', message: 'Duplicate event suppressed by dedupeKey' });
+      }
       return;
     }
 
@@ -277,24 +356,73 @@ export class Alitycs {
     const rejection = validateEvent(event);
     if (rejection) {
       this.droppedCount++;
-      this.logger.warn(`Event dropped: ${rejection}`);
+      if (this.batchManager) this.batchManager.recordInvalid(event, rejection);
+      else {
+        this.diagnostics.emit({
+          code: 'invalid_event',
+          message: `Event dropped: ${rejection}`,
+          affectedEvents: 1,
+          details: { eventId: event.eventId },
+        });
+      }
       return;
     }
 
     if (this.batchManager) {
+      this.markEventAccepted();
       this.batchManager.add(event);
     } else {
+      this.markEventAccepted();
       const payload: BatchPayload = {
         batchId: `batch_${generateId()}`,
         sentAt: Date.now(),
         events: [event],
       };
       const promise = this.transport.send(payload).then(
-        () => {
+        result => {
           this.inFlight.delete(promise);
+          if (result?.ok) {
+            this.nonBatchDelivered++;
+            this.onDeliveryStateChanged();
+            return;
+          }
+          this.nonBatchFailed++;
+          this.nonBatchLastError = {
+            at: Date.now(),
+            kind:
+              result?.status === 401 || result?.status === 403
+                ? 'auth'
+                : result?.status === 429
+                  ? 'rate_limit'
+                  : 'network',
+            ...(result?.status !== undefined ? { status: result.status } : {}),
+            message: result?.message ?? 'Delivery failed',
+            affectedEvents: 1,
+          };
+          this.diagnostics.emit({
+            code: result?.status === 429 ? 'rate_limited' : 'delivery_failed',
+            message: result?.message ?? 'Non-batching delivery failed',
+            status: result?.status,
+            affectedEvents: 1,
+            retryAfterMs: result?.retryAfterMs,
+          });
+          this.onDeliveryStateChanged();
         },
-        () => {
+        error => {
           this.inFlight.delete(promise);
+          this.nonBatchFailed++;
+          this.nonBatchLastError = {
+            at: Date.now(),
+            kind: 'network',
+            message: error instanceof Error ? error.message : String(error),
+            affectedEvents: 1,
+          };
+          this.diagnostics.emit({
+            code: 'delivery_failed',
+            message: error instanceof Error ? error.message : String(error),
+            affectedEvents: 1,
+          });
+          this.onDeliveryStateChanged();
         }
       );
       this.inFlight.add(promise);
@@ -371,13 +499,43 @@ export function page(name?: string, properties?: Record<string, unknown>, option
   defaultInstance?.page(name, properties, options);
 }
 
-export async function flush(): Promise<void> {
-  await defaultInstance?.flush();
+export function flush(options: BatchFlushOptions = {}): Promise<FlushResult> {
+  return defaultInstance?.flush(options) ?? emptyFlushResult();
 }
 
-export async function shutdown(): Promise<void> {
-  await defaultInstance?.shutdown();
+export function shutdown(): Promise<FlushResult> {
+  const result = defaultInstance?.shutdown() ?? emptyFlushResult();
   defaultInstance = undefined;
+  return result;
+}
+
+export function stats(): DeliveryStats {
+  return (
+    defaultInstance?.stats() ?? {
+      queueDepth: 0,
+      inFlight: 0,
+      quarantined: 0,
+      poisonIsolated: 0,
+      lastError: null,
+      delivered: 0,
+      failedDeliveries: 0,
+      requeued: 0,
+      retries: 0,
+      rateLimited: 0,
+      acceptedQuotaExceeded: 0,
+      droppedOverflow: 0,
+      droppedInvalid: 0,
+      droppedRejected: 0,
+      droppedDrainGiveUp: 0,
+      droppedTotal: 0,
+      deduplicated: 0,
+      restoredFromStorage: 0,
+    }
+  );
+}
+
+export function quarantinedEvents(): QuarantinedEvent[] {
+  return defaultInstance?.quarantinedEvents() ?? [];
 }
 
 export function setGlobalProperties(properties: Record<string, unknown>): void {
@@ -408,23 +566,38 @@ export type {
   SessionData,
   EventOptions,
   RevenuePayload,
+  DeliveryStats,
+  DeliveryError,
+  PersistenceOptions,
+  OverflowPolicy,
 } from './types';
 export { createLogger } from './logger';
 export { UTM_KEYS } from './utils';
 export type { Logger } from './logger';
+export { DEFAULTS, resolveAlitycsConfig } from './config';
+export { DiagnosticsHub } from './diagnostics';
+export type { DiagnosticCode, DiagnosticEvent, DiagnosticInput, DiagnosticLevel, DiagnosticsSink } from './diagnostics';
+export { MemoryEventStorage, selectEventStorage } from './storage';
+export type { EventStorage } from './storage';
+export {
+  EventPersistence,
+  eventStorageKey,
+  fingerprintStorageIdentity,
+  DEFAULT_PERSISTENCE_OPTIONS,
+} from './persistence';
 // Exported building blocks for the stateless @alitycs/server client, which composes the
 // same transport/batch/validation primitives without inheriting ambient identity state.
 export { HttpTransport } from './transport';
 export { BatchManager } from './batch-manager';
+export type { BatchFlushOptions, FlushResult, FlushStatus, QuarantinedEvent, QuarantineReason } from './batch-manager';
 export { EventDeduplicator } from './dedup';
-export {
-  RESERVED_EVENT_NAMES,
-  buildAnalyticsEvent,
-  validateEvent,
-  type BuildAnalyticsEventInput,
-} from './event';
+export { RESERVED_EVENT_NAMES, buildAnalyticsEvent, validateEvent, type BuildAnalyticsEventInput } from './event';
 
-function validateRevenuePayload(payload: RevenuePayload): void {
+function emptyFlushResult(): Promise<FlushResult> {
+  return Promise.resolve({ status: 'drained', delivered: 0, pending: 0 });
+}
+
+export function validateRevenuePayload(payload: RevenuePayload): void {
   const values = payload as RevenuePayload & Record<string, unknown>;
   if (
     payload.version !== 1 ||

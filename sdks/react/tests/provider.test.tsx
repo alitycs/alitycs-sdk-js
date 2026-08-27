@@ -179,6 +179,52 @@ describe('AlitycsProvider', () => {
     expect(initSpy).toHaveBeenCalledTimes(1);
   });
 
+  test('registers diagnostics callbacks independently on a shared client', async () => {
+    const initSpy = spyOn(BrowserAlitycs, 'init');
+    const firstDiagnostics: string[] = [];
+    const secondDiagnostics: string[] = [];
+    const first = captureClient();
+    const second = captureClient();
+    const config = {
+      maxQueueSize: 1,
+      flushSize: 100,
+      onDiagnostics: (event: { code: string }) => firstDiagnostics.push(event.code),
+    };
+
+    const firstTree = render(
+      createElement(
+        AlitycsProvider,
+        { apiKey: 'pk_diagnostics', config },
+        createElement(first.Probe)
+      )
+    );
+    const secondTree = render(
+      createElement(
+        AlitycsProvider,
+        {
+          apiKey: 'pk_diagnostics',
+          config: {
+            ...config,
+            onDiagnostics: (event: { code: string }) => secondDiagnostics.push(event.code),
+          },
+        },
+        createElement(second.Probe)
+      )
+    );
+
+    expect(initSpy).toHaveBeenCalledTimes(1);
+    expect(first.get()).toBe(second.get());
+    first.get()!.track('kept');
+    first.get()!.track('dropped');
+
+    expect(firstDiagnostics).toContain('queue_overflow');
+    expect(secondDiagnostics).toContain('queue_overflow');
+
+    firstTree.unmount();
+    secondTree.unmount();
+    await tick();
+  });
+
   test('re-inits instead of handing out an instance shut down out-of-band', async () => {
     const probe = captureClient();
     render(createElement(AlitycsProvider, { apiKey: 'pk_dead' }, createElement(probe.Probe)));

@@ -115,5 +115,13 @@ export function AlitycsProvider({ apiKey, config, children }: AlitycsProviderPro
     return () => releaseClient(shared.key, shared.entry);
   }, [shared]);
 
+  // Function-valued options are deliberately excluded from the shared-client identity. Attach
+  // them as capabilities instead so a second provider can observe the same client without
+  // forking its queue or silently losing its diagnostics callback.
+  useEffect(() => {
+    if (!shared || !config?.onDiagnostics) return undefined;
+    return shared.entry.client.addDiagnosticsListener(config.onDiagnostics);
+  }, [shared, config?.onDiagnostics]);
+
   return <AlitycsContext.Provider value={shared?.entry.client ?? null}>{children}</AlitycsContext.Provider>;
 }

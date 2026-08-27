@@ -233,7 +233,7 @@ describe('HttpTransport', () => {
       });
 
       const result = await transport.send(makePayload());
-      expect(result).toEqual({ ok: false, status: 400, transient: false });
+      expect(result).toMatchObject({ ok: false, status: 400, transient: false });
 
       restoreFetch();
     });
@@ -308,7 +308,7 @@ describe('HttpTransport', () => {
       restoreFetch();
     });
 
-    test('caps a huge Retry-After at the 10s backoff cap', async () => {
+    test('honours a huge Retry-After in bounded 60s sleep slices', async () => {
       const sleeps: number[] = [];
       let fetchCount = 0;
       globalThis.fetch = mock(async () => {
@@ -324,7 +324,8 @@ describe('HttpTransport', () => {
       }).send(makePayload());
 
       expect(fetchCount).toBe(2);
-      expect(sleeps).toEqual([10_000]);
+      expect(sleeps).toHaveLength(60);
+      expect(sleeps.every(ms => ms === 60_000)).toBe(true);
 
       restoreFetch();
     });

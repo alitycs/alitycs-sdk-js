@@ -46,6 +46,15 @@ await analytics.unset({ userId: session.userId }, ['trial_end']);
   `@alitycs/core`. By default every emitting call drains the queue before its promise
   resolves (`drainPerCall: true`), so a crash right after `await` loses nothing.
   Long-lived workers can pass `drainPerCall: false` and flush on their own cadence.
+- `flush()` and `shutdown()` return `{ status: 'drained' | 'partial' | 'paused', delivered, pending }`.
+  A paused result also includes `pausedUntil`; callers can inspect the same state through
+  `stats()` and permanent failures through `quarantinedEvents()`.
+- With `drainPerCall: true` and persistence disabled, a non-drained outcome rejects with
+  `AlitycsDeliveryError`, whose `result` contains the delivery outcome. With persistence enabled,
+  a partial outcome is retained in the WAL for a later retry.
+- `persistence` accepts the core `PersistenceOptions` and is disabled by default. Retryable sends
+  retain the exact `batchId`, `sentAt`, and event membership; `Retry-After` and the worker's typed
+  `monthly_event_quota_exceeded` response are honored without replaying already-ingested events.
 
 ### Reserved events
 

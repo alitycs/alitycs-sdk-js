@@ -218,6 +218,75 @@ describe('BrowserAlitycs', () => {
     await sdk.shutdown();
   });
 
+  test('page-exit flushing is dirty-aware when events arrive between lifecycle signals', async () => {
+    const sdk = BrowserAlitycs.init({ apiKey: 'test-key', flushSize: 100 });
+    sdk.track('before-hidden');
+    (globalThis as any).document.visibilityState = 'hidden';
+
+    documentListeners.get('visibilitychange')?.(new Event('visibilitychange'));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    sdk.track('between-hidden-and-pagehide');
+    windowListeners.get('pagehide')?.(new Event('pagehide'));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(sentPayloads.flatMap(payload => payload.events).map(event => event.event)).toEqual([
+      'before-hidden',
+      'between-hidden-and-pagehide',
+    ]);
+    expect(sentPayloads).toHaveLength(2);
+    expect(sentRequestInits.every(init => init.keepalive === true)).toBe(true);
+
+    await sdk.shutdown();
+  });
+
+  test('beforeunload is armed only while delivery is dirty and is removed after drain', async () => {
+    const sdk = BrowserAlitycs.init({ apiKey: 'test-key', flushSize: 100 });
+    expect(windowListeners.has('beforeunload')).toBe(false);
+
+    sdk.track('before-unload');
+    expect(windowListeners.has('beforeunload')).toBe(true);
+
+    await sdk.flush();
+    expect(windowListeners.has('beforeunload')).toBe(false);
+
+    await sdk.shutdown();
+  });
+
+  test('pageshow persisted re-arms delivery and replays a suspended in-flight batch', async () => {
+    let releaseFirst: (() => void) | undefined;
+    const firstRequest = new Promise<void>(resolve => {
+      releaseFirst = resolve;
+    });
+    let requests = 0;
+    globalThis.fetch = mock(async (_url: any, init: any) => {
+      sentPayloads.push(JSON.parse(init.body));
+      sentRequestInits.push(init);
+      requests++;
+      if (requests === 1) await firstRequest;
+      return new Response('OK', { status: 200 });
+    }) as any;
+
+    const sdk = BrowserAlitycs.init({ apiKey: 'test-key', flushSize: 100 });
+    sdk.track('suspended');
+    const firstFlush = sdk.flush();
+    await Promise.resolve();
+
+    const pageshow = new Event('pageshow') as Event & { persisted?: boolean };
+    pageshow.persisted = true;
+    windowListeners.get('pageshow')?.(pageshow);
+    const resumed = sdk.flush();
+    await Promise.resolve();
+
+    expect(sentPayloads).toHaveLength(2);
+    expect(sentPayloads[1]).toEqual(sentPayloads[0]);
+    releaseFirst?.();
+    await Promise.all([firstFlush, resumed]);
+
+    expect(sdk.pending).toBe(0);
+    await sdk.shutdown();
+  });
+
   test('track() queues and flushes events', async () => {
     const sdk = BrowserAlitycs.init({ apiKey: 'test-key', flushSize: 100 });
 

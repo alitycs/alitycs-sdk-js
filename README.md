@@ -11,10 +11,10 @@ the browser SDK, and the lightweight browser loader.
 
 | Package                                            | Runtime                           | What it provides                                                                                                    |
 | -------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| [`@alitycs/core`](sdks/core)                       | Node.js, Bun, Deno, edge runtimes | Tracking, identity, page and error events, trusted revenue events, batching, sessions, retry, and lifecycle control |
+| [`@alitycs/core`](sdks/core)                       | Node.js, Bun, Deno, edge runtimes | Tracking, identity, page and error events, trusted revenue events, batching, retry, optional WAL persistence, diagnostics, and lifecycle control |
 | [`@alitycs/browser`](sdks/browser)                 | Browsers                          | Core capabilities plus optional DOM/page autocapture, lifecycle flushing, and a GA4 compatibility bridge            |
 | [`@alitycs/browser-snippet`](sdks/browser-snippet) | Browser script tag                | A small loader that queues calls and loads the browser SDK asynchronously                                           |
-| [`@alitycs/server`](sdks/server)                   | Node.js, Bun (servers)            | Stateless per-call identity tracking with aliases and person traits — safe for shared server clients                |
+| [`@alitycs/server`](sdks/server)                   | Node.js, Bun (servers)            | Stateless per-call identity tracking with aliases, person traits, batching, and delivery outcomes                    |
 
 All packages are currently version `1.0.1`. Versioned, installable package archives are attached to
 [GitHub Releases](https://github.com/alitycs/alitycs-sdk-js/releases). Public npm publication is
@@ -72,12 +72,25 @@ not call the tenant-scoped analytics read API.
 - `track`, `identify`, `reset`, `page`, and `captureError`
 - `setGlobalProperties`, `removeGlobalProperties`, and `clearGlobalProperties`
 - `flush` and `shutdown`
+- `stats` and bounded `quarantinedEvents` inspection
 - Trusted `trackRevenue` on server runtimes
-- Configurable batching, bounded queues, sessions, and retry
+- Configurable batching, bounded queues, sessions, retry, and opt-in persistent delivery
 - Browser autocapture and GA4 command translation
 
-The canonical payload contract is [event schema v0.4.0](specs/event-schema.json). See the
+The canonical payload contract is [event schema v0.5.0](specs/event-schema.json). See the
 [API reference](docs/API.md) and individual package READMEs for details.
+
+## Delivery reliability
+
+`flush()` and `shutdown()` resolve to `{ status, delivered, pending }`, where `status` is
+`drained`, `partial`, or `paused`. Retryable failures retain the exact batch payload, including
+`batchId`, `sentAt`, and event membership. A server `Retry-After` deadline is honored in bounded
+sleep slices and, when persistence is enabled, restored after reload.
+
+Opt in to the append-log WAL with `persistence: true` (browser storage) or a custom synchronous
+`EventStorage` adapter. The namespace is fingerprinted by endpoint and API key. Configure queue
+overflow with `overflowPolicy: "drop-newest"` or `"drop-oldest"`, inspect delivery counters with
+`stats()`, and review bounded permanent-failure quarantine with `quarantinedEvents()`.
 
 ## Development
 

@@ -95,12 +95,41 @@ analytics.trackRevenue({
 | `flushSize`      | `25`                             | Queue size that triggers a flush                                                   |
 | `maxQueueSize`   | `1000`                           | Maximum queued events                                                              |
 | `maxRetries`     | `3`                              | Retry attempts for retryable transport failures                                    |
+| `requestTimeout` | `10000`                          | Per-request abort timeout in milliseconds                                          |
 | `sessionTimeout` | `1800000`                        | Inactivity timeout in milliseconds                                                 |
 | `batching`       | `true`                           | Send queued batches or one event per request                                       |
+| `overflowPolicy` | `drop-newest`                   | Queue-full policy: `drop-newest` or `drop-oldest`                                 |
+| `persistence`    | `false`                          | Opt-in WAL; `true` uses browser storage, or pass `PersistenceOptions`              |
+| `onDiagnostics`  | —                               | Receives structured validation and delivery diagnostics                            |
 | `debug`          | `false`                          | Enable SDK diagnostics                                                             |
 
 Requests use `Authorization: Bearer <apiKey>` and `Content-Type: application/json`. Event payloads
-conform to [schema v0.4.0](../../specs/event-schema.json).
+conform to [schema v0.5.0](../../specs/event-schema.json).
+
+## Delivery reliability
+
+The queue is memory-backed by default. Set `persistence: true` in a browser, or provide a
+synchronous `{ getItem, setItem, removeItem }` adapter, to enable the append-log WAL. Pending
+batches are written before transport handoff and replayed with the same `batchId`, `sentAt`, and
+event membership after an unknown outcome. The storage namespace is isolated by a short endpoint
+and API-key fingerprint; a live foreign writer causes a safe memory-only companion mode.
+
+`flush()` and `shutdown()` return:
+
+```ts
+type FlushResult = {
+  status: 'drained' | 'partial' | 'paused';
+  delivered: number;
+  pending: number;
+  pausedUntil?: number;
+};
+```
+
+`Retry-After` is authoritative for a rate-limit pause, including after reload. A
+`monthly_event_quota_exceeded` response is treated as already ingested and is not replayed. Whole
+batch `400` and `413` responses are isolated by adaptive bisection; permanent failures are exposed
+through `quarantinedEvents()`. Use `stats()` and `onDiagnostics` for counters, pause state,
+overflow, storage contention, and delivery errors.
 
 ## API surface
 
@@ -111,7 +140,8 @@ conform to [schema v0.4.0](../../specs/event-schema.json).
 - `page(name?, properties?, options?)`
 - `captureError(errorName, properties?, options?)`
 - `setGlobalProperties`, `getGlobalProperties`, `removeGlobalProperties`, `clearGlobalProperties`
-- `flush()` and `shutdown()`
+- `flush(options?)` and `shutdown()` return `FlushResult`
+- `stats()` and `quarantinedEvents()`
 - `pending`
 
 The same surface is available through module-level convenience functions after `init()`.

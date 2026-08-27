@@ -40,6 +40,18 @@ here before a version tag is created.
 
 ### Changed
 
+- `@alitycs/core`, `@alitycs/browser`, and `@alitycs/server`: delivery now has an opt-in append-log
+  WAL, stable batch replay, bounded queue overflow policies, structured diagnostics, delivery
+  stats, and bounded permanent-failure quarantine. `flush()` and `shutdown()` return observable
+  `FlushResult` values; stalled persisted state is retained instead of being silently discarded.
+- Retryable 429 responses now honor the complete server-directed `Retry-After` deadline in bounded
+  sleep slices and restore that pause after reload. The worker's typed
+  `monthly_event_quota_exceeded` response acknowledges already-ingested events without replaying
+  them; known `413` responses join adaptive batch isolation.
+- Browser exit delivery saves the WAL before keepalive flushing, retries when the queue became dirty
+  after an earlier exit notification, re-arms after bfcache restoration, and removes lifecycle
+  listeners during shutdown.
+
 - Analytics backend resolves anonymous histories into users at query time via tenant-scoped
   identity links; funnels now credit pre-signup anonymous steps to the identifying user, retention
   cohorts include linked anonymous activity, and metrics expose `unique_actors`. Dashboards rank
@@ -77,10 +89,8 @@ here before a version tag is created.
 - `@alitycs/core`: `trackRevenue()` reports missing, non-string, blank, or oversized `factId`
   values as the revenue-contract error instead of crashing with a TypeError on `.trim()`.
 
-- `@alitycs/core`: a 429 response's `Retry-After` header (delta-seconds or HTTP-date) is now
-  honoured — the retry after it waits at least that long instead of the default backoff, still
-  capped at 10s. Previously the header was ignored and rate-limited clients hammered through
-  the rate limit.
+- `@alitycs/core`: a 429 response's `Retry-After` header (delta-seconds or HTTP-date) is honored
+  through its complete server-directed deadline; only individual sleep chunks are capped at 60s.
 - `@alitycs/react`: `<AlitycsProvider>` is now StrictMode-safe. Clients are refcounted per
   `{ apiKey, ...config }` identity in a module-level registry: mounting joins (or constructs)
   the shared client, unmounting releases it, and shutdown runs only after the last consumer

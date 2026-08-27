@@ -251,4 +251,16 @@ describe('@alitycs/nextjs/server', () => {
     await mod.alitycs.shutdown();
     await mod.alitycs.shutdown(); // idempotent
   });
+
+  test('exposes delivery stats, quarantine access, and the additive delivery error type', async () => {
+    await freshClient({ apiKey: 'pk_observability' });
+    expect(mod.alitycs.actingUserId).toBeUndefined();
+    expect(mod.alitycs.stats()).toMatchObject({ queueDepth: 0, inFlight: 0, lastError: null });
+    expect(mod.alitycs.quarantinedEvents()).toEqual([]);
+
+    const error = new mod.AlitycsDeliveryError({ status: 'partial', delivered: 0, pending: 1 });
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain('partial');
+    await mod.alitycs.shutdown();
+  });
 });
