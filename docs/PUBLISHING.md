@@ -16,22 +16,29 @@ configure a trusted publisher for an existing package, publication happens in tw
 
    ```bash
    set -euo pipefail
+   : "${NPM_TOKEN:?Export a short-lived granular npm token as NPM_TOKEN}"
    readonly release_tag="v1.0.2"
    readonly release_version="${release_tag#v}"
+   readonly npm_user_config="$(mktemp)"
+   trap 'rm -f "$npm_user_config"' EXIT
+   chmod 600 "$npm_user_config"
+   printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$npm_user_config"
+   unset NPM_TOKEN
+   export NPM_CONFIG_USERCONFIG="$npm_user_config"
+   export NPM_CONFIG_PROVENANCE=false
    rm -rf release
    mkdir release
    gh release download "$release_tag" --repo alitycs/alitycs-sdk-js --dir release
    (cd release && sha256sum --check SHA256SUMS)
    gh attestation verify release/*.tgz --repo alitycs/alitycs-sdk-js
    npm whoami
-   export NPM_CONFIG_PROVENANCE=false
    npm publish "release/alitycs-core-${release_version}.tgz" --access public
    npm publish "release/alitycs-browser-${release_version}.tgz" --access public
    npm publish "release/alitycs-browser-snippet-${release_version}.tgz" --access public
    ```
 
-   Authenticate only through the environment variable
-   `NPM_CONFIG_//registry.npmjs.org/:_authToken`; never write the token to this repository.
+   The shell-valid `NPM_TOKEN` value is copied into a mode-0600 temporary npm user config and
+   removed by the exit trap. Never write the token or that temporary config to this repository.
 4. Immediately after all three publishes succeed, configure GitHub Actions trusted publishers:
    npmjs.com → package settings → Connected GitHub Actions publisher →
    repository alitycs/alitycs-sdk-js, workflow release.yml, environment npm-publish.

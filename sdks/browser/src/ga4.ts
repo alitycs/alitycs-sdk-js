@@ -146,7 +146,9 @@ export function installGa4Bridge(sdk: BrowserAlitycs, options: Ga4BridgeOptions 
   let initialPageTimer: ReturnType<typeof setTimeout> | undefined;
 
   const warn = (...args: unknown[]): void => {
-    if (debug) console.warn('[Alitycs GA4]', ...args);
+    if (debug && typeof console !== 'undefined' && typeof console.warn === 'function') {
+      console.warn('[Alitycs GA4]', ...args);
+    }
   };
 
   const selectedAutomaticTarget = (): string | undefined => {
