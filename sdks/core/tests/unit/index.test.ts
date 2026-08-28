@@ -286,7 +286,7 @@ describe('Alitycs', () => {
     expect(event.properties.nested).toBe('{"a":1}');
 
     // Context
-    expect(event.context.sdkVersion).toBe('1.0.1');
+    expect(event.context.sdkVersion).toBe('1.0.2');
     expect(event.context.sdkLanguage).toBe('typescript');
 
     await sdk.shutdown();

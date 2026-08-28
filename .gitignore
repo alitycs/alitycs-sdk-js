@@ -3,6 +3,7 @@ node_modules/
 sdks/*/bun.lock
 
 # Build output
+release/
 sdks/*/dist/
 sdks/*/__pycache__/
 sdks/*/target/

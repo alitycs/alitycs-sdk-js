@@ -1,4 +1,4 @@
-import type { AnalyticsEvent, BatchPayload, ResolvedConfig } from './types';
+import type { AnalyticsEvent, ResolvedConfig } from './types';
 import type { HttpTransport } from './transport';
 import type { Logger } from './logger';
 import { generateId } from './utils';
@@ -12,8 +12,9 @@ export interface BatchFlushOptions {
 export class BatchManager {
   private queue: AnalyticsEvent[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
-  private flushing = false;
   private inFlightEvents: AnalyticsEvent[] = [];
+  private flushPromise: Promise<void> | null = null;
+  private keepalivePromises = new Set<Promise<void>>();
 
   constructor(
     private config: ResolvedConfig,
@@ -47,40 +48,41 @@ export class BatchManager {
     }
   }
 
-  async flush(options: BatchFlushOptions = {}): Promise<void> {
-    const ownsFlushLock = !this.flushing;
-    if (!ownsFlushLock && options.keepalive !== true) return;
-    const replayEvents = !ownsFlushLock && options.keepalive === true ? this.inFlightEvents : [];
-    if (this.queue.length === 0 && replayEvents.length === 0) return;
-
-    if (ownsFlushLock) this.flushing = true;
-    const batchId = `batch_${generateId()}`;
-    const sentAt = Date.now();
-    const events = this.takeEvents(batchId, sentAt, options.maxPayloadBytes, replayEvents);
-
-    if (events.length === 0) {
-      if (ownsFlushLock) this.flushing = false;
-      return;
+  flush(options: BatchFlushOptions = {}): Promise<void> {
+    const inFlight = this.flushPromise;
+    if (inFlight) {
+      // While a send is in flight, wait for it and then flush what was queued meanwhile.
+      // Concurrent callers chain onto the same promise, so one follow-up flush serves them all.
+      if (options.keepalive !== true) return inFlight.then(() => this.flush(options));
+      // Page-exit keepalive replays the unresolved batch immediately, without waiting;
+      // sendBatch no-ops when neither queued nor unresolved events remain.
+      const keepalive = this.sendBatch(options, this.inFlightEvents);
+      const tracked = keepalive.finally(() => this.keepalivePromises.delete(tracked));
+      this.keepalivePromises.add(tracked);
+      return tracked;
     }
-    if (ownsFlushLock) this.inFlightEvents = events;
+    if (this.queue.length === 0) return Promise.resolve();
 
-    try {
-      const payload: BatchPayload = {
-        batchId,
-        sentAt,
-        events,
-      };
-      await this.transport.send(payload, {
-        keepalive: options.keepalive,
-        maxRetries: options.maxRetries,
-      });
-    } catch {
-      // Best-effort — events are dropped on final failure (transport already retried)
-      this.logger.warn('Batch send failed — events dropped');
-    } finally {
-      if (ownsFlushLock) {
+    const send = this.sendBatch(options, undefined, true);
+    // Cleanup belongs to the wrapper created here, after flushPromise is assigned. If
+    // sendBatch completes synchronously (for example, all events exceed a payload bound),
+    // its finally callback still runs in a later microtask and cannot leave a stale promise.
+    const tracked = send.finally(() => {
+      if (this.flushPromise === tracked) {
+        this.flushPromise = null;
         this.inFlightEvents = [];
-        this.flushing = false;
+      }
+    });
+    this.flushPromise = tracked;
+    return tracked;
+  }
+
+  /** Resolves only once nothing is queued and no send is in flight; used by shutdown(). */
+  async drain(options: BatchFlushOptions = {}): Promise<void> {
+    while (this.pending > 0 || this.flushPromise || this.keepalivePromises.size > 0) {
+      if (this.pending > 0 || this.flushPromise) await this.flush(options);
+      if (this.keepalivePromises.size > 0) {
+        await Promise.all([...this.keepalivePromises]);
       }
     }
   }
@@ -89,25 +91,64 @@ export class BatchManager {
     return this.queue.length;
   }
 
+  private async sendBatch(
+    options: BatchFlushOptions,
+    replayEvents?: AnalyticsEvent[],
+    ownsInFlight?: boolean
+  ): Promise<void> {
+    const batchId = `batch_${generateId()}`;
+    const sentAt = Date.now();
+    const replay = replayEvents ?? [];
+    const events = this.takeEvents(batchId, sentAt, options.maxPayloadBytes, replay);
+
+    if (events.length > 0) {
+      // Only the send that owns the in-flight slot tracks its batch for keepalive replay.
+      if (ownsInFlight) this.inFlightEvents = events;
+      try {
+        await this.transport.send(
+          { batchId, sentAt, events },
+          {
+            keepalive: options.keepalive,
+            maxRetries: options.maxRetries,
+          }
+        );
+      } catch {
+        // Best-effort — events are dropped on final failure (transport already retried)
+        this.logger.warn('Batch send failed — events dropped');
+      }
+    }
+  }
+
   private takeEvents(
     batchId: string,
     sentAt: number,
     maxPayloadBytes?: number,
     replayEvents: AnalyticsEvent[] = []
   ): AnalyticsEvent[] {
-    if (!maxPayloadBytes) return [...this.queue.splice(0), ...replayEvents];
+    if (!maxPayloadBytes) return [...replayEvents, ...this.queue.splice(0)];
+
+    const exceedsLimit = (events: AnalyticsEvent[]): boolean =>
+      new TextEncoder().encode(JSON.stringify({ batchId, sentAt, events })).byteLength > maxPayloadBytes;
 
     const selected: AnalyticsEvent[] = [];
+    for (const candidate of replayEvents) {
+      if (!exceedsLimit([...selected, candidate])) {
+        selected.push(candidate);
+        continue;
+      }
+
+      if (selected.length === 0) {
+        this.logger.warn('In-flight event exceeds keepalive payload limit — replay skipped');
+        continue;
+      }
+
+      return selected;
+    }
+
     while (this.queue.length > 0) {
       const candidate = this.queue[0];
-      const candidatePayload: BatchPayload = {
-        batchId,
-        sentAt,
-        events: [...selected, candidate],
-      };
-      const byteLength = new TextEncoder().encode(JSON.stringify(candidatePayload)).byteLength;
 
-      if (byteLength <= maxPayloadBytes) {
+      if (!exceedsLimit([...selected, candidate])) {
         selected.push(this.queue.shift()!);
         continue;
       }
@@ -119,29 +160,6 @@ export class BatchManager {
       }
 
       break;
-    }
-
-    if (this.queue.length === 0) {
-      for (const candidate of replayEvents) {
-        const candidatePayload: BatchPayload = {
-          batchId,
-          sentAt,
-          events: [...selected, candidate],
-        };
-        const byteLength = new TextEncoder().encode(JSON.stringify(candidatePayload)).byteLength;
-
-        if (byteLength <= maxPayloadBytes) {
-          selected.push(candidate);
-          continue;
-        }
-
-        if (selected.length === 0) {
-          this.logger.warn('In-flight event exceeds keepalive payload limit — replay skipped');
-          continue;
-        }
-
-        break;
-      }
     }
 
     return selected;

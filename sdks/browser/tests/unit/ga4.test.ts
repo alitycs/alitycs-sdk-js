@@ -197,6 +197,23 @@ describe('installGa4Bridge', () => {
     expect(handle.getStats().droppedInvalid).toBeGreaterThan(0);
   });
 
+  test('debug diagnostics remain best-effort when console is unavailable', () => {
+    const originalConsole = globalThis.console;
+    const parameters = Object.fromEntries(Array.from({ length: 55 }, (_, index) => [`key_${index}`, index]));
+    let handle: Ga4BridgeHandle;
+
+    try {
+      delete (globalThis as { console?: Console }).console;
+      handle = install({ capturePageViews: false, debug: true });
+      fakeWindow.dataLayer.push(['event', 'large_event', parameters]);
+    } finally {
+      globalThis.console = originalConsole;
+    }
+
+    expect(tracks).toHaveLength(1);
+    expect(handle!.getStats().droppedInvalid).toBeGreaterThan(0);
+  });
+
   test('captures initial and SPA page views once per URL within the dedupe window', async () => {
     const originalPush = fakeWindow.history.pushState;
     const handle = install();

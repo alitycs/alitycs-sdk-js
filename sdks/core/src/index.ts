@@ -8,7 +8,7 @@ import type {
   EventContext,
   RevenuePayload,
 } from './types';
-import { generateId, serializeProperties } from './utils';
+import { generateId, serializeProperties, UTM_KEYS, utmParam } from './utils';
 import { HttpTransport } from './transport';
 import { BatchManager } from './batch-manager';
 import { SessionManager } from './session';
@@ -166,7 +166,8 @@ export class Alitycs {
   async shutdown(): Promise<void> {
     if (this.batchManager) {
       this.batchManager.stop();
-      await this.batchManager.flush();
+      // Drain rather than flush once: a payload-bounded send can leave a remainder.
+      await this.batchManager.drain();
     } else {
       await Promise.all(this.inFlight);
     }
@@ -243,11 +244,10 @@ function pageContextOverrides(properties?: Record<string, unknown>): Partial<Eve
     overrides.url = url;
     try {
       const params = new URL(url).searchParams;
-      overrides.utmSource = params.get('utm_source') ?? undefined;
-      overrides.utmMedium = params.get('utm_medium') ?? undefined;
-      overrides.utmCampaign = params.get('utm_campaign') ?? undefined;
-      overrides.utmContent = params.get('utm_content') ?? undefined;
-      overrides.utmTerm = params.get('utm_term') ?? undefined;
+      for (const key of UTM_KEYS) {
+        const value = params.get(utmParam(key));
+        if (value) overrides[key] = value;
+      }
     } catch {
       // Keep the captured URL even when a caller supplies a non-standard value.
     }
@@ -327,6 +327,7 @@ export type {
   RevenuePayload,
 } from './types';
 export { createLogger } from './logger';
+export { UTM_KEYS } from './utils';
 export type { Logger } from './logger';
 
 function validateRevenuePayload(payload: RevenuePayload): void {

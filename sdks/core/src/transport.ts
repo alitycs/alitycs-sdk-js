@@ -23,7 +23,7 @@ export class HttpTransport {
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (attempt > 0) {
-        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10_000);
+        const delay = Math.min(1000 * 2 ** (attempt - 1), 10_000);
         await sleep(delay);
       }
 

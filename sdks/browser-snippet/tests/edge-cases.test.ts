@@ -8,6 +8,8 @@ import { SDKLoader } from '../src/loader';
 import { CallQueue } from '../src/queue';
 import type { SnippetConfig } from '../src/types';
 
+const EXPECTED_DEFAULT_SDK_URL = 'https://cdn.jsdelivr.net/npm/@alitycs/browser@1.0.2/dist/browser.min.js';
+
 describe('Edge Cases and Error Scenarios', () => {
   let window: Window;
   let document: Document;
@@ -95,7 +97,7 @@ describe('Edge Cases and Error Scenarios', () => {
       const { parseScriptConfig } = require('../src/config');
       const config = parseScriptConfig();
 
-      expect(config.sdkUrl).toBe('https://cdn.alitycs.com/sdk@2/browser.min.js');
+      expect(config.sdkUrl).toBe(EXPECTED_DEFAULT_SDK_URL);
       expect(config.autoTrack).toBe(true);
       expect(config.debug).toBe(false);
       expect(config.endpoint).toBeUndefined();

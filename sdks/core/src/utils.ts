@@ -1,3 +1,12 @@
+export const UTM_KEYS = ['utmSource', 'utmMedium', 'utmCampaign', 'utmContent', 'utmTerm'] as const;
+
+export type UtmKey = (typeof UTM_KEYS)[number];
+
+/** utmSource → utm_source */
+export function utmParam(key: UtmKey): string {
+  return key.replace(/[A-Z]/g, char => `_${char.toLowerCase()}`);
+}
+
 export function generateId(): string {
   if (typeof crypto === 'undefined') {
     throw new Error('Web Crypto required');

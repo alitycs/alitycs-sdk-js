@@ -21,7 +21,8 @@ Host `snippet.min.js` on your site or CDN, then include it with a publishable AP
 <script src="/assets/alitycs/snippet.min.js" data-api-key="pk_live_replace_me" data-auto-capture="true" async></script>
 ```
 
-The loader's default full-SDK URL is `https://cdn.alitycs.com/sdk@2/browser.min.js`. Set
+The loader's default full-SDK URL is pinned at build time to the released browser version:
+`https://cdn.jsdelivr.net/npm/@alitycs/browser@1.0.2/dist/browser.min.js`. Set
 `data-sdk-url` when self-hosting the browser bundle.
 
 ## Usage

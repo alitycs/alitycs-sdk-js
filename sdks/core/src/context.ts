@@ -1,6 +1,7 @@
 import type { EventContext } from './types';
+import { UTM_KEYS, utmParam, type UtmKey } from './utils';
 
-const SDK_VERSION = '1.0.1';
+const SDK_VERSION = '1.0.2';
 
 export function collectContext(): EventContext {
   const ctx: EventContext = {
@@ -16,11 +17,10 @@ export function collectContext(): EventContext {
   ctx.screen = getScreen();
 
   const utm = getUtmParams();
-  if (utm.utmSource) ctx.utmSource = utm.utmSource;
-  if (utm.utmMedium) ctx.utmMedium = utm.utmMedium;
-  if (utm.utmCampaign) ctx.utmCampaign = utm.utmCampaign;
-  if (utm.utmContent) ctx.utmContent = utm.utmContent;
-  if (utm.utmTerm) ctx.utmTerm = utm.utmTerm;
+  for (const key of UTM_KEYS) {
+    const value = utm[key];
+    if (value) ctx[key] = value;
+  }
 
   return ctx;
 }
@@ -75,23 +75,15 @@ function getScreen(): Record<string, string> | undefined {
   return undefined;
 }
 
-function getUtmParams(): {
-  utmSource?: string;
-  utmMedium?: string;
-  utmCampaign?: string;
-  utmContent?: string;
-  utmTerm?: string;
-} {
+function getUtmParams(): Partial<Record<UtmKey, string>> {
   if (typeof window === 'undefined' || !window.location?.search) return {};
   try {
     const params = new URLSearchParams(window.location.search);
-    return {
-      utmSource: params.get('utm_source') ?? undefined,
-      utmMedium: params.get('utm_medium') ?? undefined,
-      utmCampaign: params.get('utm_campaign') ?? undefined,
-      utmContent: params.get('utm_content') ?? undefined,
-      utmTerm: params.get('utm_term') ?? undefined,
-    };
+    const utm: Partial<Record<UtmKey, string>> = {};
+    for (const key of UTM_KEYS) {
+      utm[key] = params.get(utmParam(key)) ?? undefined;
+    }
+    return utm;
   } catch {
     return {};
   }

@@ -5,6 +5,8 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { Window } from 'happy-dom';
 
+const EXPECTED_DEFAULT_SDK_URL = 'https://cdn.jsdelivr.net/npm/@alitycs/browser@1.0.2/dist/browser.min.js';
+
 describe('parseScriptConfig', () => {
   let window: Window;
   let document: Document;
@@ -151,7 +153,7 @@ describe('parseScriptConfig', () => {
     const { parseScriptConfig } = require('../src/config');
     const config = parseScriptConfig();
 
-    expect(config.sdkUrl).toBe('https://cdn.alitycs.com/sdk@2/browser.min.js');
+    expect(config.sdkUrl).toBe(EXPECTED_DEFAULT_SDK_URL);
   });
 
   test('should return empty apiKey when missing', () => {
@@ -182,7 +184,7 @@ describe('parseScriptConfig', () => {
 
     expect(config).toEqual({
       apiKey: '',
-      sdkUrl: 'https://cdn.alitycs.com/sdk@2/browser.min.js',
+      sdkUrl: EXPECTED_DEFAULT_SDK_URL,
       autoTrack: true,
       debug: false,
     });

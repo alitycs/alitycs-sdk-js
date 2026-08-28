@@ -8,6 +8,9 @@ const originalDescriptors = new Map(
   ])
 );
 const originalDateTimeFormat = Intl.DateTimeFormat;
+const corePackage = (await Bun.file(new URL('../../package.json', import.meta.url)).json()) as {
+  version: string;
+};
 
 afterEach(() => {
   for (const [key, descriptor] of originalDescriptors) {
@@ -31,7 +34,7 @@ function setGlobal(key: string, value: unknown): void {
 describe('collectContext', () => {
   test('returns sdkVersion and sdkLanguage', () => {
     const ctx = collectContext();
-    expect(ctx.sdkVersion).toBe('1.0.1');
+    expect(ctx.sdkVersion).toBe(corePackage.version);
     expect(ctx.sdkLanguage).toBe('typescript');
   });
 
@@ -77,6 +80,22 @@ describe('collectContext', () => {
       utmContent: 'hero',
       utmTerm: 'analytics',
     });
+  });
+
+  test('omits missing and empty UTM parameters', () => {
+    setGlobal('window', {
+      location: {
+        href: 'https://example.test/?utm_source=&utm_campaign=spring',
+        search: '?utm_source=&utm_campaign=spring',
+      },
+    });
+
+    const context = collectContext();
+    expect(context.utmSource).toBeUndefined();
+    expect(context.utmMedium).toBeUndefined();
+    expect(context.utmCampaign).toBe('spring');
+    expect(context.utmContent).toBeUndefined();
+    expect(context.utmTerm).toBeUndefined();
   });
 
   test('collects browser locale, user agent, referrer, and screen dimensions', () => {

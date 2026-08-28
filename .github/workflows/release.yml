@@ -55,19 +55,33 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
+          no-cache: true
+      - name: Set up Node for installation verification
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "24.16.0"
+          package-manager-cache: false
+      - name: Provision exact package-manager smoke tools
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.23.0 --activate
+          corepack prepare yarn@1.22.22 --activate
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Verify release version
         run: bun run scripts/check-release-version.ts
       - name: Run release checks
         run: bun run check
+      - name: Verify packaged installation across package managers
+        run: bun run verify:installs
       - name: Pack release archives
         run: |
+          rm -rf release
           mkdir -p release
           for package in core browser browser-snippet; do
             (cd "sdks/$package" && bun pm pack --destination "$GITHUB_WORKSPACE/release")
           done
-          (cd release && sha256sum *.tgz > SHA256SUMS)
+          (cd release && sha256sum -- ./*.tgz > SHA256SUMS)
       - name: Upload release artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -97,10 +111,6 @@ jobs:
         with:
           name: release-artifacts
           path: release
-      - name: Attest release archives
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: release/*.tgz
       - name: Recheck immutable release tag
         env:
           EXPECTED_TAG_COMMIT: ${{ needs.build.outputs.tag_commit }}
@@ -125,11 +135,105 @@ jobs:
             echo "error: release tag changed after the build completed" >&2
             exit 1
           fi
+      - name: Attest release archives
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/*.tgz
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh release create "${GITHUB_REF_NAME}" release/*
-          --verify-tag
-          --generate-notes
-          --title "${GITHUB_REF_NAME}"
+          EXPECTED_TAG_COMMIT: ${{ needs.build.outputs.tag_commit }}
+          EXPECTED_TAG_OBJECT: ${{ needs.build.outputs.tag_object }}
+        shell: bash
+        run: |
+          if [[ ! "$EXPECTED_TAG_OBJECT" =~ ^[0-9a-f]{40}$ ]] ||
+            [[ ! "$EXPECTED_TAG_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "error: build did not provide a valid release tag identity" >&2
+            exit 1
+          fi
+          git fetch --no-tags --force origin \
+            "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          current_tag_object="$(git rev-parse "${GITHUB_REF}^{tag}")"
+          current_tag_commit="$(git rev-parse "${GITHUB_REF}^{commit}")"
+          if [[ "$current_tag_object" != "$EXPECTED_TAG_OBJECT" ]] ||
+            [[ "$current_tag_commit" != "$EXPECTED_TAG_COMMIT" ]]; then
+            echo "error: release tag changed before GitHub Release creation" >&2
+            exit 1
+          fi
+          gh release create "${GITHUB_REF_NAME}" release/* \
+            --verify-tag \
+            --generate-notes \
+            --title "${GITHUB_REF_NAME}"
+
+  publish-npm:
+    name: Publish to npm
+    # Enabled only once docs/PUBLISHING.md bootstrap has run and the "npm-publish"
+    # GitHub environment is configured with protection rules. Until then this job
+    # must stay disabled.
+    if: github.repository == 'alitycs/alitycs-sdk-js' && vars.NPM_PUBLISH_ENABLED == 'true'
+    needs: [build, release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: npm-publish
+    permissions:
+      id-token: write   # OIDC for npm trusted publishing
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download attested release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-artifacts
+          path: release
+      - name: Verify release archive checksums
+        run: (cd release && sha256sum --check SHA256SUMS)
+      - name: Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "24.16.0"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Install integrity-pinned npm publisher
+        shell: bash
+        env:
+          NPM_CLI_INTEGRITY: sha512-uIXokLlBj6FpNUTQX1PmT5pz7BlIN9QlixX+zdaSNHsd0qUXsbDLr50xzY6Sw7cJVr0uzHKDOle0swmPW/p5Qw==
+        run: |
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --output npm-12.0.2.tgz \
+            https://registry.npmjs.org/npm/-/npm-12.0.2.tgz
+          actual="sha512-$(openssl dgst -sha512 -binary npm-12.0.2.tgz | openssl base64 -A)"
+          if [[ "$actual" != "$NPM_CLI_INTEGRITY" ]]; then
+            echo "error: npm CLI integrity mismatch" >&2
+            exit 1
+          fi
+          npm install --global --ignore-scripts ./npm-12.0.2.tgz
+          [[ "$(npm --version)" == "12.0.2" ]]
+      - name: Recheck tag and publish attested tarballs
+        shell: bash
+        env:
+          EXPECTED_TAG_COMMIT: ${{ needs.build.outputs.tag_commit }}
+          EXPECTED_TAG_OBJECT: ${{ needs.build.outputs.tag_object }}
+        run: |
+          if [[ ! "$EXPECTED_TAG_OBJECT" =~ ^[0-9a-f]{40}$ ]] ||
+            [[ ! "$EXPECTED_TAG_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "error: build did not provide a valid release tag identity" >&2
+            exit 1
+          fi
+          version="${GITHUB_REF_NAME#v}"
+          for package in core browser browser-snippet; do
+            git fetch --no-tags --force origin \
+              "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+            current_tag_object="$(git rev-parse "${GITHUB_REF}^{tag}")"
+            current_tag_commit="$(git rev-parse "${GITHUB_REF}^{commit}")"
+            if [[ "$current_tag_object" != "$EXPECTED_TAG_OBJECT" ]] ||
+              [[ "$current_tag_commit" != "$EXPECTED_TAG_COMMIT" ]]; then
+              echo "error: release tag changed before npm publication" >&2
+              exit 1
+            fi
+            npm publish "release/alitycs-${package}-${version}.tgz" \
+              --access public --provenance
+          done

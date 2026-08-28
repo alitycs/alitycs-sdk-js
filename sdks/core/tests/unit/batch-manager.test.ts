@@ -29,7 +29,7 @@ function makeEvent(name = 'test_event'): AnalyticsEvent {
     sessionId: 'sess_123',
     timestamp: Date.now(),
     properties: {},
-    context: { sdkVersion: '1.0.1', sdkLanguage: 'typescript' },
+    context: { sdkVersion: '1.0.2', sdkLanguage: 'typescript' },
   };
 }
 
@@ -161,7 +161,7 @@ describe('BatchManager', () => {
     expect(bm.pending).toBeGreaterThan(0);
   });
 
-  test('keepalive flush sends newly queued events while a normal flush is in flight', async () => {
+  test('keepalive flush replays in-flight events before newly queued events', async () => {
     let finishNormalFlush: (() => void) | undefined;
     const normalFlushPending = new Promise<void>(resolve => {
       finishNormalFlush = resolve;
@@ -185,12 +185,169 @@ describe('BatchManager', () => {
     await bm.flush({ keepalive: true, maxPayloadBytes: 60_000, maxRetries: 0 });
 
     expect(sent).toHaveLength(2);
-    expect(sent[1].events.map(event => event.event)).toEqual(['page-exit', 'normal']);
+    expect(sent[1].events.map(event => event.event)).toEqual(['normal', 'page-exit']);
     expect(options[1]).toEqual({ keepalive: true, maxRetries: 0 });
     expect(bm.pending).toBe(0);
 
     finishNormalFlush?.();
     await normalFlush;
+  });
+
+  test('bounded keepalive replay prioritizes the unresolved batch over newer queued events', async () => {
+    let finishNormalFlush: (() => void) | undefined;
+    const normalFlushPending = new Promise<void>(resolve => {
+      finishNormalFlush = resolve;
+    });
+    const sent: BatchPayload[] = [];
+    const transport = {
+      send: mock(async (payload: BatchPayload) => {
+        sent.push(payload);
+        if (sent.length === 1) await normalFlushPending;
+      }),
+    };
+    bm = new BatchManager(makeConfig({ flushSize: 100 }), transport as any, createLogger(false));
+
+    bm.add({ ...makeEvent('in-flight'), properties: { payload: 'x'.repeat(400) } });
+    const normalFlush = bm.flush();
+    await Promise.resolve();
+    bm.add({ ...makeEvent('newer-queued'), properties: { payload: 'y'.repeat(400) } });
+
+    await bm.flush({ keepalive: true, maxPayloadBytes: 900, maxRetries: 0 });
+
+    expect(sent).toHaveLength(2);
+    expect(sent[1].events.map(event => event.event)).toEqual(['in-flight']);
+    expect(new TextEncoder().encode(JSON.stringify(sent[1])).byteLength).toBeLessThanOrEqual(900);
+    expect(bm.pending).toBe(1);
+
+    finishNormalFlush?.();
+    await normalFlush;
+    await bm.drain();
+    expect(sent[2].events.map(event => event.event)).toEqual(['newer-queued']);
+  });
+
+  test('flush() awaits an in-flight send and then drains queued events', async () => {
+    let finishFirstSend: (() => void) | undefined;
+    const firstSendPending = new Promise<void>(resolve => {
+      finishFirstSend = resolve;
+    });
+    const sent: BatchPayload[] = [];
+    const transport = {
+      send: mock(async (payload: BatchPayload) => {
+        sent.push(payload);
+        if (sent.length === 1) await firstSendPending;
+      }),
+    };
+    bm = new BatchManager(makeConfig(), transport as any, createLogger(false));
+
+    bm.add(makeEvent('a'));
+    const inFlight = bm.flush();
+    await Promise.resolve();
+    bm.add(makeEvent('b'));
+
+    const followUp = bm.flush();
+    expect(sent).toHaveLength(1);
+
+    finishFirstSend?.();
+    await Promise.all([inFlight, followUp]);
+
+    expect(sent).toHaveLength(2);
+    expect(sent[1].events.map(event => event.event)).toEqual(['b']);
+    expect(bm.pending).toBe(0);
+  });
+
+  test('concurrent flushes during an in-flight send coalesce into one follow-up batch', async () => {
+    let finishFirstSend: (() => void) | undefined;
+    const firstSendPending = new Promise<void>(resolve => {
+      finishFirstSend = resolve;
+    });
+    const sent: BatchPayload[] = [];
+    const transport = {
+      send: mock(async (payload: BatchPayload) => {
+        sent.push(payload);
+        if (sent.length === 1) await firstSendPending;
+      }),
+    };
+    bm = new BatchManager(makeConfig({ flushSize: 100 }), transport as any, createLogger(false));
+
+    bm.add(makeEvent('a'));
+    const inFlight = bm.flush();
+    await Promise.resolve();
+    bm.add(makeEvent('b'));
+    bm.add(makeEvent('c'));
+
+    const waiterOne = bm.flush();
+    const waiterTwo = bm.flush();
+    const waiterThree = bm.flush();
+
+    finishFirstSend?.();
+    await Promise.all([inFlight, waiterOne, waiterTwo, waiterThree]);
+
+    expect(sent).toHaveLength(2);
+    expect(sent[1].events.map(event => event.event)).toEqual(['b', 'c']);
+    expect(bm.pending).toBe(0);
+  });
+
+  test('drain() waits for an in-flight send before emptying the queue', async () => {
+    let finishFirstSend: (() => void) | undefined;
+    const firstSendPending = new Promise<void>(resolve => {
+      finishFirstSend = resolve;
+    });
+    const sent: BatchPayload[] = [];
+    const transport = {
+      send: mock(async (payload: BatchPayload) => {
+        sent.push(payload);
+        if (sent.length === 1) await firstSendPending;
+      }),
+    };
+    bm = new BatchManager(makeConfig(), transport as any, createLogger(false));
+
+    bm.add(makeEvent('a'));
+    const inFlight = bm.flush();
+    await Promise.resolve();
+    bm.add(makeEvent('b'));
+
+    const drained = bm.drain();
+    expect(bm.pending).toBe(1);
+
+    finishFirstSend?.();
+    await Promise.all([inFlight, drained]);
+
+    expect(sent).toHaveLength(2);
+    expect(sent[1].events.map(event => event.event)).toEqual(['b']);
+    expect(bm.pending).toBe(0);
+  });
+
+  test('drain() sends payload-bounded remainders until the queue is empty', async () => {
+    const transport = makeMockTransport();
+    bm = new BatchManager(makeConfig({ flushSize: 100 }), transport as any, createLogger(false));
+
+    for (let index = 0; index < 5; index++) {
+      bm.add({ ...makeEvent(`page-${index}`), properties: { payload: 'x'.repeat(120) } });
+    }
+
+    await bm.drain({ maxPayloadBytes: 700 });
+
+    expect(bm.pending).toBe(0);
+    expect(transport.sent.length).toBeGreaterThan(1);
+    expect(transport.sent.flatMap(payload => payload.events.map(event => event.event))).toHaveLength(5);
+    for (const payload of transport.sent) {
+      expect(new TextEncoder().encode(JSON.stringify(payload)).byteLength).toBeLessThanOrEqual(700);
+    }
+  });
+
+  test('drain clears its flush slot when every queued event exceeds the payload bound', async () => {
+    const transport = makeMockTransport();
+    bm = new BatchManager(makeConfig({ flushSize: 100 }), transport as any, createLogger(false));
+    bm.add({ ...makeEvent('oversized'), properties: { payload: 'x'.repeat(1_000) } });
+
+    await bm.drain({ maxPayloadBytes: 100 });
+
+    expect(bm.pending).toBe(0);
+    expect(transport.sent).toHaveLength(0);
+
+    bm.add(makeEvent('after-oversized'));
+    await bm.flush();
+    expect(transport.sent[0].events.map(event => event.event)).toEqual(['after-oversized']);
   });
 
   test('keepalive flush replays an unresolved normal batch during page exit', async () => {
@@ -221,5 +378,44 @@ describe('BatchManager', () => {
 
     finishNormalFlush?.();
     await normalFlush;
+  });
+
+  test('drain waits for an in-flight keepalive replay', async () => {
+    let finishNormalFlush: (() => void) | undefined;
+    let finishKeepalive: (() => void) | undefined;
+    const normalPending = new Promise<void>(resolve => {
+      finishNormalFlush = resolve;
+    });
+    const keepalivePending = new Promise<void>(resolve => {
+      finishKeepalive = resolve;
+    });
+    let calls = 0;
+    const transport = {
+      send: mock(async () => {
+        const call = ++calls;
+        if (call === 1) await normalPending;
+        if (call === 2) await keepalivePending;
+      }),
+    };
+    bm = new BatchManager(makeConfig({ flushSize: 100 }), transport as any, createLogger(false));
+    bm.add(makeEvent('in-flight'));
+
+    const normalFlush = bm.flush();
+    await Promise.resolve();
+    const keepalive = bm.flush({ keepalive: true, maxPayloadBytes: 60_000, maxRetries: 0 });
+    await Promise.resolve();
+
+    let drained = false;
+    const drain = bm.drain().then(() => {
+      drained = true;
+    });
+    finishNormalFlush?.();
+    await normalFlush;
+    await Promise.resolve();
+    expect(drained).toBe(false);
+
+    finishKeepalive?.();
+    await Promise.all([keepalive, drain]);
+    expect(drained).toBe(true);
   });
 });
