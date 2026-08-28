@@ -13,7 +13,8 @@ The repository uses one version for `@alitycs/core`, `@alitycs/browser`, and
    deletion of `refs/tags/v*` without any bypass actor.
 5. The `Release` workflow verifies and builds each package in a read-only job, then a separate
    minimal-permission job fetches and rechecks the annotated-tag identity before attesting and
-   attaching installable tarballs with SHA-256 checksums and creating the GitHub Release. The
+   again immediately before attaching installable tarballs with SHA-256 checksums to the GitHub
+   Release. The
    workflow intentionally has no Actions concurrency group because pull-request
    workflow code can reserve repository-global groups. Immutable tags, the fresh identity recheck,
    and immutable tag and version publication identities provide duplicate-release safety without

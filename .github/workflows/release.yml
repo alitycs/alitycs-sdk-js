@@ -142,11 +142,28 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh release create "${GITHUB_REF_NAME}" release/*
-          --verify-tag
-          --generate-notes
-          --title "${GITHUB_REF_NAME}"
+          EXPECTED_TAG_COMMIT: ${{ needs.build.outputs.tag_commit }}
+          EXPECTED_TAG_OBJECT: ${{ needs.build.outputs.tag_object }}
+        shell: bash
+        run: |
+          if [[ ! "$EXPECTED_TAG_OBJECT" =~ ^[0-9a-f]{40}$ ]] ||
+            [[ ! "$EXPECTED_TAG_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "error: build did not provide a valid release tag identity" >&2
+            exit 1
+          fi
+          git fetch --no-tags --force origin \
+            "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          current_tag_object="$(git rev-parse "${GITHUB_REF}^{tag}")"
+          current_tag_commit="$(git rev-parse "${GITHUB_REF}^{commit}")"
+          if [[ "$current_tag_object" != "$EXPECTED_TAG_OBJECT" ]] ||
+            [[ "$current_tag_commit" != "$EXPECTED_TAG_COMMIT" ]]; then
+            echo "error: release tag changed before GitHub Release creation" >&2
+            exit 1
+          fi
+          gh release create "${GITHUB_REF_NAME}" release/* \
+            --verify-tag \
+            --generate-notes \
+            --title "${GITHUB_REF_NAME}"
 
   publish-npm:
     name: Publish to npm
