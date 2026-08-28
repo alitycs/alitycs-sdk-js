@@ -6,14 +6,14 @@ explicit lifecycle control without browser-only autocapture.
 
 ## Installation
 
-The package is prepared for public npm publication:
+Install the package from npm:
 
 ```bash
 bun add @alitycs/core
 # or: npm install @alitycs/core
 ```
 
-Until the first npm release is published, install the archive attached to the matching
+For archive-based installation, use the archive attached to the matching
 [GitHub Release](https://github.com/alitycs/alitycs-sdk-js/releases):
 
 ```bash
