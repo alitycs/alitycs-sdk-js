@@ -79,6 +79,11 @@ reviews:
         Check dependency necessity, exact public entry points, side-effects and tree-shaking
         behavior, supported runtimes, bundle impact, and release-script safety. Treat lockfile
         changes as supply-chain-sensitive and ensure they match the manifest change.
+    - path: "bun.lock"
+      instructions: >-
+        Treat the lockfile as generated supply-chain evidence. Require matching workspace manifest
+        changes, flag unexpected registries, packages, lifecycle scripts, or transitive version
+        shifts, and require the dependency-review and Snyk Open Source checks to pass.
     - path: ".coderabbit.yaml"
       instructions: >-
         Block changes that disable automatic or incremental review, request-changes behavior,
