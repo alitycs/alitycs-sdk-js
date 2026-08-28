@@ -97,10 +97,6 @@ jobs:
         with:
           name: release-artifacts
           path: release
-      - name: Attest release archives
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: release/*.tgz
       - name: Recheck immutable release tag
         env:
           EXPECTED_TAG_COMMIT: ${{ needs.build.outputs.tag_commit }}
@@ -125,6 +121,10 @@ jobs:
             echo "error: release tag changed after the build completed" >&2
             exit 1
           fi
+      - name: Attest release archives
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/*.tgz
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
