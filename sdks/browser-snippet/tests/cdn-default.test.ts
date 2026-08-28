@@ -3,12 +3,15 @@ import { describe, expect, test } from 'bun:test';
 import { STRICT_SEMVER_SOURCE, isStrictSemVer } from '../../../scripts/strict-semver';
 import { DEFAULT_SDK_URL } from '../src/config';
 
+const EXPECTED_DEFAULT_SDK_URL = 'https://cdn.jsdelivr.net/npm/@alitycs/browser@1.0.2/dist/browser.min.js';
+
 describe('CDN default', () => {
   test('is an exact-version npm CDN URL, never a floating range', () => {
     const exactCdnPattern = new RegExp(
       `^https://cdn\\.jsdelivr\\.net/npm/@alitycs/browser@(?:${STRICT_SEMVER_SOURCE})/dist/browser\\.min\\.js$`
     );
 
+    expect(DEFAULT_SDK_URL).toBe(EXPECTED_DEFAULT_SDK_URL);
     expect(DEFAULT_SDK_URL).toMatch(exactCdnPattern);
     expect('https://cdn.jsdelivr.net/npm/@alitycs/browser@1.0.3-rc.1/dist/browser.min.js').toMatch(exactCdnPattern);
     expect('https://cdn.jsdelivr.net/npm/@alitycs/browser@1.0.3+build.7/dist/browser.min.js').toMatch(exactCdnPattern);
