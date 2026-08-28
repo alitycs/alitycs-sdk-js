@@ -30,7 +30,9 @@ configure a trusted publisher for an existing package, publication happens in tw
    mkdir release
    gh release download "$release_tag" --repo alitycs/alitycs-sdk-js --dir release
    (cd release && sha256sum --check SHA256SUMS)
-   gh attestation verify release/*.tgz --repo alitycs/alitycs-sdk-js
+   for archive in release/*.tgz; do
+     gh attestation verify "$archive" --repo alitycs/alitycs-sdk-js
+   done
    npm whoami
    npm publish "release/alitycs-core-${release_version}.tgz" --access public
    npm publish "release/alitycs-browser-${release_version}.tgz" --access public
