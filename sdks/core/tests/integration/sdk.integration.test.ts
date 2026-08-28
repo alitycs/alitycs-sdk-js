@@ -200,9 +200,30 @@ describe('SDK Integration', () => {
     await sdk.flush();
 
     const ctx = sentPayloads[0].events[0].context;
-    expect(ctx.sdkVersion).toBe('1.0.1');
+    expect(ctx.sdkVersion).toBe('1.0.2');
     expect(ctx.sdkLanguage).toBe('typescript');
     expect(typeof ctx.timezone).toBe('string');
+
+    await sdk.shutdown();
+  });
+
+  test('page URL overrides populate non-empty UTM context only', async () => {
+    const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+
+    sdk.page('Campaign', {
+      url: 'https://example.test/?utm_source=partner&utm_medium=&utm_term=analytics',
+      referrer: '',
+    });
+    await sdk.flush();
+
+    const context = sentPayloads[0].events[0].context;
+    expect(context.url).toBe('https://example.test/?utm_source=partner&utm_medium=&utm_term=analytics');
+    expect(context.referrer).toBe('');
+    expect(context.utmSource).toBe('partner');
+    expect(context.utmMedium).toBeUndefined();
+    expect(context.utmCampaign).toBeUndefined();
+    expect(context.utmContent).toBeUndefined();
+    expect(context.utmTerm).toBe('analytics');
 
     await sdk.shutdown();
   });

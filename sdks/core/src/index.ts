@@ -245,7 +245,8 @@ function pageContextOverrides(properties?: Record<string, unknown>): Partial<Eve
     try {
       const params = new URL(url).searchParams;
       for (const key of UTM_KEYS) {
-        overrides[key] = params.get(utmParam(key)) ?? undefined;
+        const value = params.get(utmParam(key));
+        if (value) overrides[key] = value;
       }
     } catch {
       // Keep the captured URL even when a caller supplies a non-standard value.

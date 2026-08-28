@@ -19,6 +19,9 @@ here before a version tag is created.
   now waits for the exact delivery generation it observed and reports incomplete delivery.
 - @alitycs/core keeps its public `UTM_KEYS` export, clears the active flush slot when every event
   exceeds a page-exit payload bound, and waits for keepalive replay sends during shutdown.
+- @alitycs/core reports SDK version 1.0.2, prioritizes unresolved events in bounded page-exit
+  replays, and omits empty UTM parameters; snippet builds reject malformed semantic versions while
+  retaining exact prerelease and build-metadata support.
 
 ## [1.0.1] - 2026-08-23
 

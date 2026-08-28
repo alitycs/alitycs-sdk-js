@@ -125,12 +125,26 @@ export class BatchManager {
     maxPayloadBytes?: number,
     replayEvents: AnalyticsEvent[] = []
   ): AnalyticsEvent[] {
-    if (!maxPayloadBytes) return [...this.queue.splice(0), ...replayEvents];
+    if (!maxPayloadBytes) return [...replayEvents, ...this.queue.splice(0)];
 
     const exceedsLimit = (events: AnalyticsEvent[]): boolean =>
       new TextEncoder().encode(JSON.stringify({ batchId, sentAt, events })).byteLength > maxPayloadBytes;
 
     const selected: AnalyticsEvent[] = [];
+    for (const candidate of replayEvents) {
+      if (!exceedsLimit([...selected, candidate])) {
+        selected.push(candidate);
+        continue;
+      }
+
+      if (selected.length === 0) {
+        this.logger.warn('In-flight event exceeds keepalive payload limit — replay skipped');
+        continue;
+      }
+
+      return selected;
+    }
+
     while (this.queue.length > 0) {
       const candidate = this.queue[0];
 
@@ -146,22 +160,6 @@ export class BatchManager {
       }
 
       break;
-    }
-
-    if (this.queue.length === 0) {
-      for (const candidate of replayEvents) {
-        if (!exceedsLimit([...selected, candidate])) {
-          selected.push(candidate);
-          continue;
-        }
-
-        if (selected.length === 0) {
-          this.logger.warn('In-flight event exceeds keepalive payload limit — replay skipped');
-          continue;
-        }
-
-        break;
-      }
     }
 
     return selected;

@@ -1,7 +1,7 @@
 import type { EventContext } from './types';
 import { UTM_KEYS, utmParam, type UtmKey } from './utils';
 
-const SDK_VERSION = '1.0.1';
+const SDK_VERSION = '1.0.2';
 
 export function collectContext(): EventContext {
   const ctx: EventContext = {

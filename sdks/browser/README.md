@@ -9,8 +9,8 @@ bun add @alitycs/browser
 # or: npm install @alitycs/browser
 ```
 
-Until the first npm publication, install both `alitycs-core-1.0.1.tgz` and
-`alitycs-browser-1.0.1.tgz` from the matching
+Until the first npm publication, install both `alitycs-core-1.0.2.tgz` and
+`alitycs-browser-1.0.2.tgz` from the matching
 [GitHub Release](https://github.com/alitycs/alitycs-sdk-js/releases). Browser applications must use
 a publishable key; never embed a secret API key in client code.
 

@@ -3,12 +3,13 @@
  * @alitycs/browser version, keeping source and artifact in lockstep.
  */
 import { $ } from "bun";
+import { isStrictSemVer } from "./strict-semver";
 
 const browserPkg = await Bun.file(
   new URL("../sdks/browser/package.json", import.meta.url),
 ).json();
 const version: string = browserPkg.version;
-if (!/^\d+\.\d+\.\d+/.test(version)) {
+if (!isStrictSemVer(version)) {
   throw new Error(`Unexpected @alitycs/browser version: ${version}`);
 }
 const cdnUrl = `https://cdn.jsdelivr.net/npm/@alitycs/browser@${version}/dist/browser.min.js`;
