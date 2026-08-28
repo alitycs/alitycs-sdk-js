@@ -111,7 +111,7 @@ function serializedLength(value: unknown): number | null {
  */
 export function installGa4Bridge(sdk: BrowserAlitycs, options: Ga4BridgeOptions = {}): Ga4BridgeHandle {
   if (typeof window === 'undefined') {
-    throw new Error('installGa4Bridge() requires a browser environment');
+    throw new Error('GA4 requires a browser');
   }
 
   const bridgeSdk = sdk as BridgeSdk;
@@ -146,7 +146,7 @@ export function installGa4Bridge(sdk: BrowserAlitycs, options: Ga4BridgeOptions 
   let initialPageTimer: ReturnType<typeof setTimeout> | undefined;
 
   const warn = (...args: unknown[]): void => {
-    if (debug && typeof console !== 'undefined') console.warn('[Alitycs GA4]', ...args);
+    if (debug) console.warn('[Alitycs GA4]', ...args);
   };
 
   const selectedAutomaticTarget = (): string | undefined => {
@@ -215,7 +215,7 @@ export function installGa4Bridge(sdk: BrowserAlitycs, options: Ga4BridgeOptions 
 
     if (dropped > 0) {
       stats.droppedInvalid += dropped;
-      warn(`Dropped ${dropped} invalid or excess GA4 parameter(s)`);
+      warn('Dropped GA4 parameters:', dropped);
     }
 
     const properties: Record<string, unknown> = Object.fromEntries(selected);
@@ -236,7 +236,7 @@ export function installGa4Bridge(sdk: BrowserAlitycs, options: Ga4BridgeOptions 
     if (uninstalled) return false;
     if (!analyticsStorageGranted) {
       stats.droppedForConsent += 1;
-      warn(`Dropped ${eventName}: analytics_storage is denied`);
+      warn('Consent denied:', eventName);
       return false;
     }
     if (!eventName || eventName.startsWith('gtm.')) {
@@ -295,7 +295,7 @@ export function installGa4Bridge(sdk: BrowserAlitycs, options: Ga4BridgeOptions 
       try {
         (callback as (result?: unknown) => void)(value);
       } catch (error) {
-        warn('GA callback threw an error', error);
+        warn('Callback failed', error);
       }
     });
   };
@@ -391,7 +391,7 @@ export function installGa4Bridge(sdk: BrowserAlitycs, options: Ga4BridgeOptions 
       if (eventName) emit(eventName, values);
     } catch (error) {
       stats.droppedInvalid += 1;
-      warn('Ignored an invalid dataLayer item', error);
+      warn('Invalid dataLayer', error);
     }
   };
 
@@ -471,7 +471,7 @@ export function installGa4Bridge(sdk: BrowserAlitycs, options: Ga4BridgeOptions 
       'script[src*="googletagmanager.com/gtag/js"],script[src*="google-analytics.com"]'
     );
     if ((googleScripts?.length ?? 0) > 0 || Boolean(win.google_tag_manager)) {
-      warn('Google Analytics appears to be active. Replace mode does not block Google scripts or GTM tags.');
+      warn('Google Analytics is active in replace mode.');
     }
   }
 

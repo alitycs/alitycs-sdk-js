@@ -109,7 +109,7 @@ export function initializeGa4FromScript(script: HTMLScriptElement | null = findS
   const debug = booleanAttribute(script, 'data-debug', false);
   const logger = createLogger(debug);
   if (!config) {
-    logger.error('API key not found in GA4 bridge script configuration');
+    logger.error('API key not found');
     return null;
   }
 
@@ -132,7 +132,7 @@ export function initializeGa4FromScript(script: HTMLScriptElement | null = findS
     win.AlitycsGA4 = bridge;
     return bridge;
   } catch (error) {
-    logger.error('Failed to initialize GA4 bridge:', error);
+    logger.error('GA4 init failed:', error);
     return null;
   }
 }
