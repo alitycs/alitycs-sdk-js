@@ -67,7 +67,7 @@ jobs:
           for package in core browser browser-snippet; do
             (cd "sdks/$package" && bun pm pack --destination "$GITHUB_WORKSPACE/release")
           done
-          (cd release && sha256sum *.tgz > SHA256SUMS)
+          (cd release && sha256sum -- ./*.tgz > SHA256SUMS)
       - name: Upload release artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
