@@ -1,4 +1,9 @@
 import { init } from "@alitycs/browser";
+import { UTM_KEYS } from "@alitycs/core";
+
+if (!Array.isArray(UTM_KEYS) || !UTM_KEYS.includes("utmSource")) {
+  throw new Error("@alitycs/core lost its public UTM_KEYS export");
+}
 
 const instance = init({
   apiKey: "pk_smoke_test_0000000000000000000000000000",
@@ -12,13 +17,17 @@ await instance.shutdown();
 const snippetSource = await import("node:fs/promises").then((fs) =>
   fs.readFile(
     new URL(
-      "../../../release/@alitycs-browser-snippet-1.0.2/package/dist/snippet.min.js",
+      "./node_modules/@alitycs/browser-snippet/dist/snippet.min.js",
       import.meta.url,
     ),
     "utf8",
   ),
 );
-if (!snippetSource.includes("cdn.jsdelivr.net/npm/@alitycs/browser@1.0.2")) {
+if (
+  !snippetSource.includes(
+    "https://cdn.jsdelivr.net/npm/@alitycs/browser@1.0.2/dist/browser.min.js",
+  )
+) {
   throw new Error("Snippet bundle lost its pinned CDN URL");
 }
 console.log("install smoke OK");

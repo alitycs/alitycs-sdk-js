@@ -326,6 +326,7 @@ export type {
   RevenuePayload,
 } from './types';
 export { createLogger } from './logger';
+export { UTM_KEYS } from './utils';
 export type { Logger } from './logger';
 
 function validateRevenuePayload(payload: RevenuePayload): void {

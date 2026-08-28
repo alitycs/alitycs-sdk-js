@@ -14,11 +14,6 @@ bun run build:all
 (cd sdks/browser && bun pm pack --destination "$out")
 (cd sdks/browser-snippet && bun pm pack --destination "$out")
 
-# Unpack the snippet tarball so the smoke check can assert on its pinned CDN URL.
-rm -rf "$out/@alitycs-browser-snippet-1.0.2"
-mkdir -p "$out/@alitycs-browser-snippet-1.0.2"
-tar -xzf "$out/alitycs-browser-snippet"-*.tgz -C "$out/@alitycs-browser-snippet-1.0.2"
-
 rm -rf "$fixture/node_modules" "$fixture/bun.lock" "$fixture/bun.lockb" \
   "$fixture/package-lock.json" "$fixture/pnpm-lock.yaml" "$fixture/yarn.lock"
 
@@ -32,7 +27,9 @@ trap restore_manifest EXIT
 run_pm() {
   local pm="$1"
   echo "== $pm =="
-  rm -rf "$fixture/node_modules"
+  rm -rf "$fixture/node_modules" "$fixture/.yarn-cache" "$fixture/bun.lock" \
+    "$fixture/bun.lockb" "$fixture/package-lock.json" "$fixture/pnpm-lock.yaml" \
+    "$fixture/yarn.lock"
   case "$pm" in
     npm)   (cd "$fixture" && npm install --no-audit --no-fund --loglevel=error) ;;
     pnpm)  (cd "$fixture" && pnpm install --no-frozen-lockfile) ;;
@@ -47,7 +44,7 @@ run_pm() {
         manifest.packageManager = `yarn@${yarnVersion}`;
         fs.writeFileSync(file, JSON.stringify(manifest, null, 2) + "\n");
       ' "$fixture_pkg" "$(yarn --version)"
-      (cd "$fixture" && yarn install --ignore-engines)
+      (cd "$fixture" && yarn install --force --ignore-engines --cache-folder .yarn-cache)
       restore_manifest
       ;;
     bun)   (cd "$fixture" && bun install) ;;
@@ -56,7 +53,10 @@ run_pm() {
 }
 
 for pm in npm pnpm yarn bun; do
-  command -v "$pm" >/dev/null || { echo "skip $pm (not installed)"; continue; }
+  command -v "$pm" >/dev/null || {
+    echo "error: required package manager '$pm' is not installed" >&2
+    exit 1
+  }
   run_pm "$pm"
 done
-echo "All available package managers resolved the three @alitycs packages."
+echo "npm, pnpm, Yarn, and Bun resolved the three @alitycs packages."

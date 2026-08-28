@@ -17,6 +17,8 @@ here before a version tag is created.
   no build produced it).
 - @alitycs/core no longer loses events when `flush()` races an in-flight background send; flush
   now waits for the exact delivery generation it observed and reports incomplete delivery.
+- @alitycs/core keeps its public `UTM_KEYS` export, clears the active flush slot when every event
+  exceeds a page-exit payload bound, and waits for keepalive replay sends during shutdown.
 
 ## [1.0.1] - 2026-08-23
 

@@ -14,6 +14,7 @@ export class BatchManager {
   private timer: ReturnType<typeof setInterval> | null = null;
   private inFlightEvents: AnalyticsEvent[] = [];
   private flushPromise: Promise<void> | null = null;
+  private keepalivePromises = new Set<Promise<void>>();
 
   constructor(
     private config: ResolvedConfig,
@@ -55,19 +56,34 @@ export class BatchManager {
       if (options.keepalive !== true) return inFlight.then(() => this.flush(options));
       // Page-exit keepalive replays the unresolved batch immediately, without waiting;
       // sendBatch no-ops when neither queued nor unresolved events remain.
-      return this.sendBatch(options, this.inFlightEvents);
+      const keepalive = this.sendBatch(options, this.inFlightEvents);
+      const tracked = keepalive.finally(() => this.keepalivePromises.delete(tracked));
+      this.keepalivePromises.add(tracked);
+      return tracked;
     }
     if (this.queue.length === 0) return Promise.resolve();
 
-    const promise = this.sendBatch(options, undefined, true);
-    this.flushPromise = promise;
-    return promise;
+    const send = this.sendBatch(options, undefined, true);
+    // Cleanup belongs to the wrapper created here, after flushPromise is assigned. If
+    // sendBatch completes synchronously (for example, all events exceed a payload bound),
+    // its finally callback still runs in a later microtask and cannot leave a stale promise.
+    const tracked = send.finally(() => {
+      if (this.flushPromise === tracked) {
+        this.flushPromise = null;
+        this.inFlightEvents = [];
+      }
+    });
+    this.flushPromise = tracked;
+    return tracked;
   }
 
   /** Resolves only once nothing is queued and no send is in flight; used by shutdown(). */
   async drain(options: BatchFlushOptions = {}): Promise<void> {
-    while (this.pending > 0 || this.flushPromise) {
-      await this.flush(options);
+    while (this.pending > 0 || this.flushPromise || this.keepalivePromises.size > 0) {
+      if (this.pending > 0 || this.flushPromise) await this.flush(options);
+      if (this.keepalivePromises.size > 0) {
+        await Promise.all([...this.keepalivePromises]);
+      }
     }
   }
 
@@ -100,11 +116,6 @@ export class BatchManager {
         // Best-effort — events are dropped on final failure (transport already retried)
         this.logger.warn('Batch send failed — events dropped');
       }
-    }
-
-    if (ownsInFlight) {
-      this.flushPromise = null;
-      this.inFlightEvents = [];
     }
   }
 

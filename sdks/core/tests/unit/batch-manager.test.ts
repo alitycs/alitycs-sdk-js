@@ -303,6 +303,21 @@ describe('BatchManager', () => {
     }
   });
 
+  test('drain clears its flush slot when every queued event exceeds the payload bound', async () => {
+    const transport = makeMockTransport();
+    bm = new BatchManager(makeConfig({ flushSize: 100 }), transport as any, createLogger(false));
+    bm.add({ ...makeEvent('oversized'), properties: { payload: 'x'.repeat(1_000) } });
+
+    await bm.drain({ maxPayloadBytes: 100 });
+
+    expect(bm.pending).toBe(0);
+    expect(transport.sent).toHaveLength(0);
+
+    bm.add(makeEvent('after-oversized'));
+    await bm.flush();
+    expect(transport.sent[0].events.map(event => event.event)).toEqual(['after-oversized']);
+  });
+
   test('keepalive flush replays an unresolved normal batch during page exit', async () => {
     let finishNormalFlush: (() => void) | undefined;
     const normalFlushPending = new Promise<void>(resolve => {
@@ -331,5 +346,44 @@ describe('BatchManager', () => {
 
     finishNormalFlush?.();
     await normalFlush;
+  });
+
+  test('drain waits for an in-flight keepalive replay', async () => {
+    let finishNormalFlush: (() => void) | undefined;
+    let finishKeepalive: (() => void) | undefined;
+    const normalPending = new Promise<void>(resolve => {
+      finishNormalFlush = resolve;
+    });
+    const keepalivePending = new Promise<void>(resolve => {
+      finishKeepalive = resolve;
+    });
+    let calls = 0;
+    const transport = {
+      send: mock(async () => {
+        const call = ++calls;
+        if (call === 1) await normalPending;
+        if (call === 2) await keepalivePending;
+      }),
+    };
+    bm = new BatchManager(makeConfig({ flushSize: 100 }), transport as any, createLogger(false));
+    bm.add(makeEvent('in-flight'));
+
+    const normalFlush = bm.flush();
+    await Promise.resolve();
+    const keepalive = bm.flush({ keepalive: true, maxPayloadBytes: 60_000, maxRetries: 0 });
+    await Promise.resolve();
+
+    let drained = false;
+    const drain = bm.drain().then(() => {
+      drained = true;
+    });
+    finishNormalFlush?.();
+    await normalFlush;
+    await Promise.resolve();
+    expect(drained).toBe(false);
+
+    finishKeepalive?.();
+    await Promise.all([keepalive, drain]);
+    expect(drained).toBe(true);
   });
 });
