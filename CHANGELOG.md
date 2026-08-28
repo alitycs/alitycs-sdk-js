@@ -3,7 +3,7 @@
 This project follows [Semantic Versioning](https://semver.org/). User-visible changes are recorded
 here before a version tag is created.
 
-## [1.0.2] - 2026-08-31
+## [1.0.2] - 2026-08-28
 
 ### Changed
 - @alitycs/browser-snippet: default CDN target replaced with a build-injected,
@@ -15,6 +15,8 @@ here before a version tag is created.
 ### Fixed
 - @alitycs/browser-snippet now ships `dist/snippet.d.ts` (the manifest declared it;
   no build produced it).
+- @alitycs/core no longer loses events when `flush()` races an in-flight background send; flush
+  now waits for the exact delivery generation it observed and reports incomplete delivery.
 
 ## [1.0.1] - 2026-08-23
 
