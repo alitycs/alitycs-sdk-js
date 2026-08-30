@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "audit": "bun audit --audit-level=high",
-    "check": "bun run typecheck:all && bun run lint:all && bun run format:check && bun run test:all && bun run build:all",
+    "check": "bun run build:all && bun run typecheck:all && bun run lint:all && bun run format:check && bun run test:all",
     "verify:installs": "bash tests/install-fixtures/run.sh",
     "test:all": "bun run test:policy && bun run test:core && bun run test:browser && bun run test:snippet && bun run test:react && bun run test:nextjs && bun run test:server",
     "test:policy": "bun test tests/coderabbit-policy.test.ts",
