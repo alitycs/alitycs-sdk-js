@@ -25,7 +25,7 @@ const snippetSource = await import("node:fs/promises").then((fs) =>
 );
 if (
   !snippetSource.includes(
-    "https://cdn.jsdelivr.net/npm/@alitycs/browser@1.0.2/dist/browser.min.js",
+    "https://cdn.jsdelivr.net/npm/@alitycs/browser@1.0.3/dist/browser.min.js",
   )
 ) {
   throw new Error("Snippet bundle lost its pinned CDN URL");

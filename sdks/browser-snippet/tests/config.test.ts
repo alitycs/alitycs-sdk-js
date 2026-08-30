@@ -5,7 +5,7 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { Window } from 'happy-dom';
 
-const EXPECTED_DEFAULT_SDK_URL = 'https://cdn.jsdelivr.net/npm/@alitycs/browser@1.0.2/dist/browser.min.js';
+const EXPECTED_DEFAULT_SDK_URL = 'https://cdn.jsdelivr.net/npm/@alitycs/browser@1.0.3/dist/browser.min.js';
 
 describe('parseScriptConfig', () => {
   let window: Window;

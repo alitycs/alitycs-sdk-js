@@ -1,6 +1,6 @@
 {
   "name": "@alitycs/browser-snippet",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Ultra-lightweight analytics snippet (~1KB) for drop-in integration",
   "main": "dist/snippet.js",
   "types": "dist/snippet.d.ts",

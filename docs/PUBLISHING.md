@@ -17,7 +17,7 @@ configure a trusted publisher for an existing package, publication happens in tw
    ```bash
    set -euo pipefail
    : "${NPM_TOKEN:?Export a short-lived granular npm token as NPM_TOKEN}"
-   readonly release_tag="v1.0.2"
+   readonly release_tag="v1.0.3"
    readonly release_version="${release_tag#v}"
    readonly npm_user_config="$(mktemp)"
    trap 'rm -f "$npm_user_config"' EXIT
