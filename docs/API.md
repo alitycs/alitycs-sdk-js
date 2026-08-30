@@ -63,7 +63,7 @@ await analytics.shutdown();
 | `flushInterval`  | `number`  | No       | `10000`                            | Batch flush interval in milliseconds                              |
 | `flushSize`      | `number`  | No       | `25`                               | Number of events that triggers an automatic flush                 |
 | `maxQueueSize`   | `number`  | No       | `1000`                             | Maximum events in the batch queue                                 |
-| `maxRetries`     | `number`  | No       | `3`                                | Maximum retry attempts for failed HTTP requests                   |
+| `maxRetries`     | `number`  | No       | `3`                                | Finite, non-negative integer retry count for failed HTTP requests |
 | `requestTimeout` | `number`  | No       | `10000`                            | Per-request abort timeout in milliseconds                          |
 | `debug`          | `boolean` | No       | `false`                            | Enable debug logging                                              |
 | `sessionTimeout` | `number`  | No       | `1800000` (30 min)                 | Session inactivity timeout in milliseconds                        |
@@ -435,13 +435,15 @@ When the page is hidden or receives `pagehide`, queued events are sent in one bo
 - `Authorization: Bearer <apiKey>` header
 - `Content-Type: application/json` header
 - Automatic retries up to `maxRetries` (default 3) with exponential backoff
+- `Retry-After` support with a five-minute maximum queue-pause deadline
 
 ## Error Handling
 
 - `Alitycs.init()` throws `"apiKey is required"` if the API key is missing or empty.
 - `track()`, `captureError()`, `identify()`, and `page()` silently no-op on invalid input (empty event name, empty error name, empty user ID).
 - Auto-capture errors are caught internally and never propagate to the host page.
-- Transport failures are retried automatically; after `maxRetries`, the event is dropped.
+- Transport failures are retried automatically; durable batching retains the batch after
+  `maxRetries` so a later flush or restart can retry it with stable event identity.
 
 ## Exported Types
 

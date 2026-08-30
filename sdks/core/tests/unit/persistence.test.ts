@@ -171,10 +171,16 @@ describe('EventPersistence', () => {
     expect(storage.getItem(persistence.key)).toBeNull();
   });
 
-  test('disabling an oversized log removes stale replay state', () => {
+  test('disabling an oversized log retains the last durable pending state', () => {
     const storage = new MemoryEventStorage();
-    const persistence = new EventPersistence({ storage, maxPersistedBytes: 500 }, ENDPOINT, API_KEY, () => 1_000);
+    const persistence = new EventPersistence({ storage, maxPersistedBytes: 800 }, ENDPOINT, API_KEY, () => 1_000);
     persistence.load();
+    persistence.appendBatch({
+      batchId: 'batch_durable',
+      sentAt: 1_000,
+      events: [makeEvent('durable')],
+    });
+    const lastDurableLog = storage.getItem(persistence.key);
     persistence.appendBatch({
       batchId: 'batch_oversized',
       sentAt: 1_000,
@@ -182,7 +188,11 @@ describe('EventPersistence', () => {
     });
 
     expect(persistence.isEnabled).toBe(false);
-    expect(storage.getItem(persistence.key)).toBeNull();
-    expect(staleReload(storage, 10_000).load().pending).toHaveLength(0);
+    expect(storage.getItem(persistence.key)).toBe(lastDurableLog);
+    expect(
+      staleReload(storage, 10_000)
+        .load()
+        .pending.flatMap(batch => batch.events)
+    ).toMatchObject([{ eventId: 'durable' }]);
   });
 });

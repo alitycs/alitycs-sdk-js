@@ -312,7 +312,7 @@ describe('HttpTransport', () => {
       restoreFetch();
     });
 
-    test('returns a huge Retry-After to the batch manager without blocking', async () => {
+    test('returns a capped Retry-After to the batch manager without blocking', async () => {
       const sleeps: number[] = [];
       let fetchCount = 0;
       globalThis.fetch = mock(async () => {
@@ -329,8 +329,19 @@ describe('HttpTransport', () => {
 
       expect(fetchCount).toBe(1);
       expect(sleeps).toHaveLength(0);
-      expect(result).toMatchObject({ ok: false, status: 429, transient: true, retryAfterMs: 3_600_000 });
+      expect(result).toMatchObject({ ok: false, status: 429, transient: true, retryAfterMs: 300_000 });
 
+      restoreFetch();
+    });
+
+    test('caps a body-provided retry deadline before returning it', async () => {
+      globalThis.fetch = mock(async () =>
+        Response.json({ error: 'wait', retry_after_seconds: 3600 }, { status: 429 })
+      ) as any;
+
+      const result = await makeTransport(async () => undefined).send(makePayload());
+
+      expect(result).toMatchObject({ ok: false, status: 429, transient: true, retryAfterMs: 300_000 });
       restoreFetch();
     });
 
@@ -410,6 +421,8 @@ describe('HttpTransport', () => {
       expect(parseRetryAfterMs('soon', now)).toBeNull();
       expect(parseRetryAfterMs(' 5 ', now)).toBe(5000);
       expect(parseRetryAfterMs(new Date(now - 60_000).toUTCString(), now)).toBe(0);
+      expect(parseRetryAfterMs('3600', now)).toBe(300_000);
+      expect(parseRetryAfterMs(new Date(now + 3_600_000).toUTCString(), now)).toBe(300_000);
     });
   });
 

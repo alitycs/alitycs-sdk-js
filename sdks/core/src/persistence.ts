@@ -378,13 +378,9 @@ export class EventPersistence {
 
   private disable(message: string, error?: unknown): void {
     this.active = false;
-    // A disabled log can no longer receive acknowledgements. Remove it so a
-    // later process cannot replay batches that this process already delivered.
-    try {
-      this.storage?.removeItem(this.key);
-    } catch {
-      // Best effort: the original storage failure remains the actionable error.
-    }
+    // Retain the last successfully written log. It may replay an already-delivered
+    // event after restart, but stable eventId values make that logically deduplicable;
+    // deleting it here could permanently lose events still pending in this process.
     this.onError?.(message, error);
   }
 }

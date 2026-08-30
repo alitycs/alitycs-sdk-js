@@ -34,6 +34,9 @@ export function resolveAlitycsConfig(
   if (!(resolved.flushSize >= 1) || !(resolved.maxQueueSize >= 1) || !(resolved.flushInterval >= 1)) {
     throw new Error('flushSize, maxQueueSize, and flushInterval must be positive numbers');
   }
+  if (!Number.isInteger(resolved.maxRetries) || resolved.maxRetries < 0) {
+    throw new Error('maxRetries must be a finite non-negative integer');
+  }
   return resolved;
 }
 

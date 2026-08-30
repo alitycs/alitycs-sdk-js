@@ -41,6 +41,15 @@ describe('resolveAlitycsConfig', () => {
     expect(() => resolveAlitycsConfig({ apiKey: 'key', flushInterval: -1 })).toThrow('must be positive numbers');
   });
 
+  test('rejects unbounded or fractional retry counts', () => {
+    for (const maxRetries of [Number.POSITIVE_INFINITY, Number.NaN, -1, 1.5]) {
+      expect(() => resolveAlitycsConfig({ apiKey: 'key', maxRetries })).toThrow(
+        'maxRetries must be a finite non-negative integer'
+      );
+    }
+    expect(resolveAlitycsConfig({ apiKey: 'key', maxRetries: 0 }).maxRetries).toBe(0);
+  });
+
   test('rejects blank API keys', () => {
     expect(() => resolveAlitycsConfig({ apiKey: ' ' })).toThrow('apiKey is required');
   });

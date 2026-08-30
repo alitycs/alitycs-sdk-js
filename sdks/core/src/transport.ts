@@ -37,6 +37,8 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_BACKOFF_MS = 10_000;
 /** Longer server pauses are returned to the batch manager instead of blocking this request. */
 const MAX_IN_ATTEMPT_RETRY_AFTER_MS = 60_000;
+/** Malformed or distant server deadlines must not suspend the entire queue indefinitely. */
+const MAX_SERVER_RETRY_AFTER_MS = 5 * 60_000;
 
 export class HttpTransport {
   constructor(private config: TransportConfig) {}
@@ -153,7 +155,7 @@ async function readErrorBody(response: Response): Promise<{ code?: string; messa
       message: typeof parsed.error === 'string' ? parsed.error : undefined,
       retryAfterMs:
         typeof parsed.retry_after_seconds === 'number' && Number.isFinite(parsed.retry_after_seconds)
-          ? Math.max(0, parsed.retry_after_seconds * 1000)
+          ? clampRetryAfterMs(parsed.retry_after_seconds * 1000)
           : undefined,
     };
   } catch {
@@ -172,8 +174,15 @@ function parseBodyRetryAfter(body: { retryAfterMs?: number }): number | null {
 export function parseRetryAfterMs(value: string | null, now: number = Date.now()): number | null {
   if (!value) return null;
   const trimmed = value.trim();
-  if (/^\d+$/.test(trimmed)) return Number(trimmed) * 1000;
+  if (/^\d+$/.test(trimmed)) {
+    const milliseconds = Number(trimmed) * 1000;
+    return Number.isFinite(milliseconds) ? clampRetryAfterMs(milliseconds) : null;
+  }
   const when = Date.parse(trimmed);
   if (Number.isNaN(when)) return null;
-  return Math.max(0, when - now);
+  return clampRetryAfterMs(when - now);
+}
+
+function clampRetryAfterMs(milliseconds: number): number {
+  return Math.min(MAX_SERVER_RETRY_AFTER_MS, Math.max(0, milliseconds));
 }

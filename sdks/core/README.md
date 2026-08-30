@@ -94,7 +94,7 @@ analytics.trackRevenue({
 | `flushInterval`  | `10000`                          | Batch flush interval in milliseconds                                               |
 | `flushSize`      | `25`                             | Queue size that triggers a flush                                                   |
 | `maxQueueSize`   | `1000`                           | Maximum queued events                                                              |
-| `maxRetries`     | `3`                              | Retry attempts for retryable transport failures                                    |
+| `maxRetries`     | `3`                              | Finite, non-negative integer retry count for retryable transport failures           |
 | `requestTimeout` | `10000`                          | Per-request abort timeout in milliseconds                                          |
 | `sessionTimeout` | `1800000`                        | Inactivity timeout in milliseconds                                                 |
 | `batching`       | `true`                           | Send queued batches or one event per request                                       |
@@ -105,6 +105,9 @@ analytics.trackRevenue({
 
 Requests use `Authorization: Bearer <apiKey>` and `Content-Type: application/json`. Event payloads
 conform to [schema v0.5.0](../../specs/event-schema.json).
+
+`Retry-After` is honored without blocking an in-flight request indefinitely. Server-directed
+deadlines are capped at five minutes, then persisted as a queue pause for durable clients.
 
 ## Delivery reliability
 
