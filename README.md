@@ -94,7 +94,7 @@ overflow with `overflowPolicy: "drop-newest"` or `"drop-oldest"`, inspect delive
 
 ## Development
 
-Requirements: [Bun](https://bun.sh) `1.3.14`, Bash, Git, jq, CPython 3.11 through 3.14,
+Requirements: [Bun](https://bun.sh) `1.4.0`, Bash, Git, jq, CPython 3.11 through 3.14,
 and Ruby 3.3 or newer.
 
 ```bash
