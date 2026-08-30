@@ -6,7 +6,7 @@
  */
 declare const __ALITYCS_BROWSER_CDN_URL__: string | undefined;
 
-export const BROWSER_VERSION = '1.0.2';
+export const BROWSER_VERSION = '1.0.3';
 
 export const DEFAULT_SDK_URL: string =
   typeof __ALITYCS_BROWSER_CDN_URL__ === 'string'

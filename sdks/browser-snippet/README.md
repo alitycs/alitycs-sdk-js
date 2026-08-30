@@ -22,7 +22,7 @@ Host `snippet.min.js` on your site or CDN, then include it with a publishable AP
 ```
 
 The loader's default full-SDK URL is pinned at build time to the released browser version:
-`https://cdn.jsdelivr.net/npm/@alitycs/browser@1.0.2/dist/browser.min.js`. Set
+`https://cdn.jsdelivr.net/npm/@alitycs/browser@1.0.3/dist/browser.min.js`. Set
 `data-sdk-url` when self-hosting the browser bundle.
 
 ## Usage

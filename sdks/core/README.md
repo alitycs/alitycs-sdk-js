@@ -17,7 +17,7 @@ For archive-based installation, use the archive attached to the matching
 [GitHub Release](https://github.com/alitycs/alitycs-sdk-js/releases):
 
 ```bash
-bun add https://github.com/alitycs/alitycs-sdk-js/releases/download/v1.0.2/alitycs-core-1.0.2.tgz
+bun add https://github.com/alitycs/alitycs-sdk-js/releases/download/v1.0.3/alitycs-core-1.0.3.tgz
 ```
 
 ## Usage

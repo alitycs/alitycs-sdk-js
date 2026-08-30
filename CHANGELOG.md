@@ -3,14 +3,26 @@
 This project follows [Semantic Versioning](https://semver.org/). User-visible changes are recorded
 here before a version tag is created.
 
+## [1.0.3] - 2026-08-30
+
+### Fixed
+- The clean-install release gate now disables Corepack's parent workspace package-manager check
+  for the isolated pnpm fixture, so the reviewed archives are verified under npm, pnpm, Yarn,
+  and Bun in GitHub Actions.
+
+### Changed
+- First public npm publication of @alitycs/core, @alitycs/browser, and
+  @alitycs/browser-snippet moves to 1.0.3 after the immutable 1.0.2 release tag failed before
+  artifact creation.
+
 ## [1.0.2] - 2026-08-28
 
 ### Changed
 - @alitycs/browser-snippet: default CDN target replaced with a build-injected,
   exact-version npm CDN URL (`https://cdn.jsdelivr.net/npm/@alitycs/browser@<version>/dist/browser.min.js`);
   self-hosting via `data-sdk-url` remains supported.
-- First public npm publication of @alitycs/core, @alitycs/browser, and
-  @alitycs/browser-snippet at 1.0.2.
+- Prepared the first public npm publication of @alitycs/core, @alitycs/browser, and
+  @alitycs/browser-snippet.
 
 ### Fixed
 - @alitycs/browser-snippet now ships `dist/snippet.d.ts` (the manifest declared it;
@@ -125,6 +137,7 @@ here before a version tag is created.
   revenue events, browser lifecycle flushing, optional autocapture, and the GA4 bridge.
 - Enforced 90% line and 85% function coverage gates.
 
+[1.0.3]: https://github.com/alitycs/alitycs-sdk-js/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/alitycs/alitycs-sdk-js/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/alitycs/alitycs-sdk-js/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/alitycs/alitycs-sdk-js/releases/tag/v1.0.0

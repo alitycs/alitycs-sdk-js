@@ -32,7 +32,7 @@ function makeEvent(name = 'test_event'): AnalyticsEvent {
     sessionId: 'sess_123',
     timestamp: Date.now(),
     properties: {},
-    context: { sdkVersion: '1.0.2', sdkLanguage: 'typescript' },
+    context: { sdkVersion: '1.0.3', sdkLanguage: 'typescript' },
   };
 }
 
