@@ -344,19 +344,20 @@ describe('BatchManager', () => {
     }
   });
 
-  test('drain clears its flush slot when every queued event exceeds the payload bound', async () => {
+  test('drain releases its flush slot while retaining an oversized bounded payload', async () => {
     const transport = makeMockTransport();
     bm = new BatchManager(makeConfig({ flushSize: 100 }), transport as any, createLogger(false));
     bm.add({ ...makeEvent('oversized'), properties: { payload: 'x'.repeat(1_000) } });
 
     await bm.drain({ maxPayloadBytes: 100 });
 
-    expect(bm.pending).toBe(0);
+    expect(bm.pending).toBe(1);
     expect(transport.sent).toHaveLength(0);
 
     bm.add(makeEvent('after-oversized'));
     await bm.flush();
-    expect(transport.sent[0].events.map(event => event.event)).toEqual(['after-oversized']);
+    expect(transport.sent[0].events.map(event => event.event)).toEqual(['oversized', 'after-oversized']);
+    expect(bm.pending).toBe(0);
   });
 
   test('keepalive flush replays an unresolved normal batch during page exit', async () => {
