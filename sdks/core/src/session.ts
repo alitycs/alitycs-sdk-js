@@ -8,7 +8,10 @@ export class SessionManager {
   private sessionTimeout: number;
   private storage: SimpleStorage | null;
 
-  constructor(sessionTimeout: number) {
+  constructor(
+    sessionTimeout: number,
+    private onRotate?: (session: SessionData) => void
+  ) {
     this.sessionTimeout = sessionTimeout;
     this.storage = selectStorage();
     this.session = this.restore() ?? this.create();
@@ -22,6 +25,7 @@ export class SessionManager {
     if (this.isExpired()) {
       this.session = this.create(this.session.anonymousId);
       this.persist();
+      this.onRotate?.(this.session);
     } else {
       this.session.lastActivity = Date.now();
       this.persist();
@@ -64,7 +68,9 @@ export class SessionManager {
 
       // Expired session — new session, preserve anonymousId, clear userId
       if (Date.now() - data.lastActivity > this.sessionTimeout) {
-        return this.create(data.anonymousId);
+        const rotated = this.create(data.anonymousId);
+        this.onRotate?.(rotated);
+        return rotated;
       }
       return data;
     } catch {

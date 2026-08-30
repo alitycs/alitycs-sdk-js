@@ -2,6 +2,7 @@ import { describe, test, expect, mock, beforeEach, afterEach } from 'bun:test';
 import {
   BrowserAlitycs,
   Alitycs,
+  alias,
   captureError,
   clearGlobalProperties,
   flush,
@@ -11,11 +12,15 @@ import {
   page,
   removeGlobalProperties,
   reset,
+  set,
   setGlobalProperties,
+  setOnce,
   shutdown,
   track,
+  unset,
 } from '../../src/index';
 import type { BatchPayload } from '@alitycs/core';
+import { installGa4Bridge, type Ga4BridgeHandle } from '../../src/ga4';
 
 describe('BrowserAlitycs', () => {
   let originalFetch: typeof globalThis.fetch;
@@ -124,6 +129,37 @@ describe('BrowserAlitycs', () => {
     await sdk.shutdown();
   });
 
+  test('GA4 bridge + autoCapture enabled together yield exactly one pageview per navigation', async () => {
+    const win = globalThis as any;
+    // Make pushState move location.href so each navigation carries a distinct page_view URL.
+    win.history.pushState = mock((_state: unknown, _unused: string, url?: string | URL | null) => {
+      if (url) win.window.location.href = new URL(String(url), 'http://localhost/').href;
+    });
+    let handle: Ga4BridgeHandle | undefined;
+    try {
+      const sdk = BrowserAlitycs.init({ apiKey: 'test-key', autoCapture: true, flushSize: 100 });
+      handle = installGa4Bridge(sdk);
+
+      // The bridge's deferred initial pageview must be deduped against autoCapture's.
+      await new Promise(resolve => setTimeout(resolve, 5));
+      await sdk.flush();
+
+      const pageEvents = () =>
+        sentPayloads.flatMap(payload => payload.events).filter(event => event.eventType === 'page');
+      expect(pageEvents().map(event => event.properties.url)).toEqual(['http://localhost/']);
+
+      win.history.pushState({}, '', '/next');
+      await new Promise(resolve => setTimeout(resolve, 5)); // bridge SPA handler fires on a microtask
+      await sdk.flush();
+
+      expect(pageEvents().map(event => event.properties.url)).toEqual(['http://localhost/', 'http://localhost/next']);
+
+      await sdk.shutdown();
+    } finally {
+      handle?.uninstall();
+    }
+  });
+
   test('registers pagehide and visibilitychange handlers', () => {
     const addEventListenerMock = (globalThis as any).window.addEventListener;
     const sdk = BrowserAlitycs.init({ apiKey: 'test-key' });
@@ -182,6 +218,75 @@ describe('BrowserAlitycs', () => {
     await sdk.shutdown();
   });
 
+  test('page-exit flushing is dirty-aware when events arrive between lifecycle signals', async () => {
+    const sdk = BrowserAlitycs.init({ apiKey: 'test-key', flushSize: 100 });
+    sdk.track('before-hidden');
+    (globalThis as any).document.visibilityState = 'hidden';
+
+    documentListeners.get('visibilitychange')?.(new Event('visibilitychange'));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    sdk.track('between-hidden-and-pagehide');
+    windowListeners.get('pagehide')?.(new Event('pagehide'));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(sentPayloads.flatMap(payload => payload.events).map(event => event.event)).toEqual([
+      'before-hidden',
+      'between-hidden-and-pagehide',
+    ]);
+    expect(sentPayloads).toHaveLength(2);
+    expect(sentRequestInits.every(init => init.keepalive === true)).toBe(true);
+
+    await sdk.shutdown();
+  });
+
+  test('beforeunload is armed only while delivery is dirty and is removed after drain', async () => {
+    const sdk = BrowserAlitycs.init({ apiKey: 'test-key', flushSize: 100 });
+    expect(windowListeners.has('beforeunload')).toBe(false);
+
+    sdk.track('before-unload');
+    expect(windowListeners.has('beforeunload')).toBe(true);
+
+    await sdk.flush();
+    expect(windowListeners.has('beforeunload')).toBe(false);
+
+    await sdk.shutdown();
+  });
+
+  test('pageshow persisted re-arms delivery and replays a suspended in-flight batch', async () => {
+    let releaseFirst: (() => void) | undefined;
+    const firstRequest = new Promise<void>(resolve => {
+      releaseFirst = resolve;
+    });
+    let requests = 0;
+    globalThis.fetch = mock(async (_url: any, init: any) => {
+      sentPayloads.push(JSON.parse(init.body));
+      sentRequestInits.push(init);
+      requests++;
+      if (requests === 1) await firstRequest;
+      return new Response('OK', { status: 200 });
+    }) as any;
+
+    const sdk = BrowserAlitycs.init({ apiKey: 'test-key', flushSize: 100 });
+    sdk.track('suspended');
+    const firstFlush = sdk.flush();
+    await Promise.resolve();
+
+    const pageshow = new Event('pageshow') as Event & { persisted?: boolean };
+    pageshow.persisted = true;
+    windowListeners.get('pageshow')?.(pageshow);
+    const resumed = sdk.flush();
+    await Promise.resolve();
+
+    expect(sentPayloads).toHaveLength(2);
+    expect(sentPayloads[1]).toEqual(sentPayloads[0]);
+    releaseFirst?.();
+    await Promise.all([firstFlush, resumed]);
+
+    expect(sdk.pending).toBe(0);
+    await sdk.shutdown();
+  });
+
   test('track() queues and flushes events', async () => {
     const sdk = BrowserAlitycs.init({ apiKey: 'test-key', flushSize: 100 });
 
@@ -204,6 +309,10 @@ describe('BrowserAlitycs', () => {
     track('module_track', { n: 1 });
     captureError('module_error', { code: 'E_MODULE' });
     identify('module-user', { plan: 'pro' });
+    alias('anon_module');
+    set({ seats: 3 });
+    setOnce({ source: 'module' });
+    unset(['plan']);
     page('ModulePage');
     reset();
     clearGlobalProperties();
@@ -215,6 +324,10 @@ describe('BrowserAlitycs', () => {
       'module_track',
       'module_error',
       'identify',
+      '$alias',
+      '$set',
+      '$set_once',
+      '$unset',
       'ModulePage',
       'module_after_reset',
     ]);

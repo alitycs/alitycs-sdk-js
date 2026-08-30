@@ -86,6 +86,20 @@ describe('SessionManager', () => {
     expect(after.userId).toBe('user-42');
   });
 
+  test('rotation notifies the onRotate callback so clients can drop stale identity', () => {
+    const rotations: number[] = [];
+    const sm = new SessionManager(1, rotated => rotations.push(rotated.startTime));
+    const initial = sm.getSession();
+
+    const start = Date.now();
+    while (Date.now() - start < 5) {} // busy-wait past the 1ms timeout
+
+    sm.touch();
+
+    expect(sm.getSession().id).not.toBe(initial.id);
+    expect(rotations).toHaveLength(1);
+  });
+
   test('touch persists rolling activity so reload does not split an active visit', () => {
     const originalStorage = (globalThis as { localStorage?: unknown }).localStorage;
     const originalNow = Date.now;

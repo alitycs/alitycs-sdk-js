@@ -1,0 +1,9 @@
+{
+  "description": "Canonical epoch-millisecond boundary fixtures for every SDK and external producer.",
+  "valid": [
+    { "name": "epoch milliseconds", "timestamp": 1700000000000 }
+  ],
+  "invalid": [
+    { "name": "epoch seconds", "timestamp": 1700000000 }
+  ]
+}

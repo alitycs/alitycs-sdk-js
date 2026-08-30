@@ -1,0 +1,19 @@
+[test]
+coverage = true
+coverageThreshold = { lines = 0.90, functions = 0.85 }
+# The number should mean this package's own source, nothing else.
+coverageSkipTestFiles = true
+# Workspace links pull sibling packages in (src through tsconfig paths, dist
+# through node_modules resolution); without these patterns their files would
+# inflate (or deflate) the report.
+coveragePathIgnorePatterns = [
+  "tests/**",
+  "dist/**",
+  "../core/src/**",
+  "../core/dist/**",
+  "../browser/src/**",
+  "../browser/dist/**",
+  "../react/src/**",
+  "../react/dist/**",
+  "node_modules/**",
+]

@@ -1,5 +1,4 @@
 import type { EventOptions } from '@alitycs/core';
-import type { BrowserAlitycs } from './index';
 
 export type Ga4BridgeMode = 'mirror' | 'replace';
 
@@ -31,7 +30,7 @@ type Ga4Value = unknown;
 type Ga4Params = Record<string, Ga4Value>;
 type GtagFunction = (...args: unknown[]) => void;
 
-interface BridgeSdk {
+export interface Ga4BridgeSdk {
   track(eventName: string, properties?: Record<string, unknown>, options?: EventOptions): void;
   identify(userId: string, traits?: Record<string, unknown>, options?: EventOptions): void;
   page(name?: string, properties?: Record<string, unknown>, options?: EventOptions): void;
@@ -109,12 +108,12 @@ function serializedLength(value: unknown): number | null {
  * Installs a GA4-compatible dataLayer/gtag bridge for an Alitycs browser SDK instance.
  * Existing dataLayer entries are replayed once before future pushes are observed.
  */
-export function installGa4Bridge(sdk: BrowserAlitycs, options: Ga4BridgeOptions = {}): Ga4BridgeHandle {
+export function installGa4Bridge(sdk: Ga4BridgeSdk, options: Ga4BridgeOptions = {}): Ga4BridgeHandle {
   if (typeof window === 'undefined') {
     throw new Error('GA4 requires a browser');
   }
 
-  const bridgeSdk = sdk as BridgeSdk;
+  const bridgeSdk = sdk;
   const win = window as unknown as Window & Record<string | symbol, unknown>;
   const mode: Ga4BridgeMode = options.mode === 'replace' ? 'replace' : 'mirror';
   const dataLayerName = options.dataLayerName?.trim() || DEFAULT_DATA_LAYER;

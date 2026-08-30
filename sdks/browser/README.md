@@ -31,18 +31,36 @@ With `autoCapture: true`, the SDK emits one canonical `eventType: 'page'` event 
 
 Queued events use a bounded `fetch(..., { keepalive: true })` flush on `pagehide` and when the document becomes hidden. The publishable API key remains in the `Authorization` header. Call `shutdown()` only when permanently disposing the SDK; ordinary back/forward-cache navigation does not tear down auto-capture state.
 
+### Delivery reliability and lifecycle
+
+The browser inherits core's `FlushResult`, `stats()`, diagnostics, overflow policy, and opt-in WAL
+configuration. `persistence: true` uses `localStorage`; a custom synchronous `EventStorage` can be
+provided for another browser store. Pending batches keep their original `batchId`, `sentAt`, and
+event membership across retries and reloads, while `Retry-After` pauses are restored until their
+full server-directed deadline.
+
+Exit handling calls `saveNow()` before a keepalive attempt. It is dirty-aware: a second exit event
+after new events were accepted is flushed even when the first exit was recent. `pageshow` with
+`persisted: true` re-arms delivery after bfcache restoration, and `shutdown()` removes all lifecycle
+listeners.
+
+`flush()` and `shutdown()` resolve to `FlushResult`; a `paused` result reports `pausedUntil`, and a
+`partial` result reports the retained pending count. Inspect permanent rejections with
+`quarantinedEvents()` and delivery counters with `stats()`.
+
 ## GA4 compatibility bridge
 
 The bridge observes the standard `dataLayer` used by `gtag.js` and Google Tag Manager, translates GA4 analytics commands to Alitycs, and leaves application call sites unchanged.
 
-### CDN setup
+### Self-hosted setup
 
-Mirror mode is the default. It sends translated events to Alitycs while leaving Google Analytics behavior intact:
+Host `dist/ga4.min.js` on your own origin or CDN. Mirror mode is the default: it sends translated
+events to Alitycs while leaving Google Analytics behavior intact:
 
 ```html
 <script
   async
-  src="https://cdn.alitycs.com/sdk@2/ga4.min.js"
+  src="/assets/alitycs/ga4.min.js"
   data-api-key="pk_live_replace_me"
   data-ga4-mode="mirror"
 ></script>
@@ -53,7 +71,7 @@ Use replace mode when Alitycs should be the analytics destination:
 ```html
 <script
   async
-  src="https://cdn.alitycs.com/sdk@2/ga4.min.js"
+  src="/assets/alitycs/ga4.min.js"
   data-api-key="pk_live_replace_me"
   data-ga4-mode="replace"
 ></script>

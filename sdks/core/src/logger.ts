@@ -5,9 +5,13 @@ export interface Logger {
   error: (...args: unknown[]) => void;
 }
 
-export function createLogger(debug: boolean): Logger {
+/**
+ * Warnings always surface: they report delayed or dropped events that host pages must see.
+ * The `debug` flag is retained for API compatibility.
+ */
+export function createLogger(_debug = false): Logger {
   return {
-    warn: debug ? (...args: unknown[]) => console.warn(PREFIX, ...args) : () => {},
+    warn: (...args: unknown[]) => console.warn(PREFIX, ...args),
     error: (...args: unknown[]) => console.error(PREFIX, ...args),
   };
 }

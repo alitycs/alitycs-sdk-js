@@ -37,11 +37,13 @@ describe('createLogger', () => {
     expect(errorSpy.mock.calls[0]).toEqual(['[Alitycs]', 'something broke']);
   });
 
-  test('debug: false — warn is a no-op', () => {
+  test('debug: false — delivery-loss warnings still surface', () => {
+    // Warnings report delayed or dropped events, so they are never silently swallowed.
     const logger = createLogger(false);
-    logger.warn('should not appear');
+    logger.warn('batch send failed');
 
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0]).toEqual(['[Alitycs]', 'batch send failed']);
   });
 
   test('debug: false — error still calls console.error', () => {

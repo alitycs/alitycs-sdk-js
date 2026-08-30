@@ -1,5 +1,5 @@
 import { createLogger, type EventOptions } from '@alitycs/core';
-import { BrowserAlitycs } from './index';
+import { StandaloneAlitycs } from '@alitycs/core/standalone';
 import { installGa4Bridge, type Ga4BridgeHandle, type Ga4BridgeMode } from './ga4';
 
 interface Ga4ScriptConfiguration {
@@ -42,7 +42,7 @@ function readConfiguration(script: HTMLScriptElement): Ga4ScriptConfiguration | 
   };
 }
 
-function installGlobalApi(sdk: BrowserAlitycs, bridge: Ga4BridgeHandle, config: Ga4ScriptConfiguration): GlobalApi {
+function installGlobalApi(sdk: StandaloneAlitycs, bridge: Ga4BridgeHandle, config: Ga4ScriptConfiguration): GlobalApi {
   const win = window as unknown as Record<string, unknown>;
   const api = Object.assign(
     function (method: string, ...args: unknown[]): unknown {
@@ -114,7 +114,7 @@ export function initializeGa4FromScript(script: HTMLScriptElement | null = findS
   }
 
   try {
-    const sdk = BrowserAlitycs.init({
+    const sdk = StandaloneAlitycs.init({
       apiKey: config.apiKey,
       endpoint: config.endpoint,
       debug: config.debug,
@@ -139,5 +139,5 @@ export function initializeGa4FromScript(script: HTMLScriptElement | null = findS
 
 if (typeof window !== 'undefined') initializeGa4FromScript();
 
-export { BrowserAlitycs, installGa4Bridge };
-export type { Ga4BridgeHandle, Ga4BridgeMode };
+export { StandaloneAlitycs as BrowserAlitycs, installGa4Bridge };
+export type { Ga4BridgeHandle, Ga4BridgeMode, Ga4BridgeSdk } from './ga4';

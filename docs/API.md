@@ -63,10 +63,14 @@ await analytics.shutdown();
 | `flushInterval`  | `number`  | No       | `10000`                            | Batch flush interval in milliseconds                              |
 | `flushSize`      | `number`  | No       | `25`                               | Number of events that triggers an automatic flush                 |
 | `maxQueueSize`   | `number`  | No       | `1000`                             | Maximum events in the batch queue                                 |
-| `maxRetries`     | `number`  | No       | `3`                                | Maximum retry attempts for failed HTTP requests                   |
+| `maxRetries`     | `number`  | No       | `3`                                | Finite, non-negative integer retry count for failed HTTP requests |
+| `requestTimeout` | `number`  | No       | `10000`                            | Per-request abort timeout in milliseconds                          |
 | `debug`          | `boolean` | No       | `false`                            | Enable debug logging                                              |
 | `sessionTimeout` | `number`  | No       | `1800000` (30 min)                 | Session inactivity timeout in milliseconds                        |
 | `batching`       | `boolean` | No       | `true`                             | Enable event batching (when `false`, events are sent immediately) |
+| `overflowPolicy` | `string`  | No       | `'drop-newest'`                    | Queue-full policy: `'drop-newest'` or `'drop-oldest'`             |
+| `persistence`    | `boolean \| object` | No | `false`                       | Opt-in append-log WAL and restore options                         |
+| `onDiagnostics`  | `function` | No      | —                                  | Receives structured delivery and validation diagnostics            |
 
 ## Alitycs Class
 
@@ -178,18 +182,21 @@ Remove all global properties.
 analytics.clearGlobalProperties();
 ```
 
-### `flush(): Promise<void>`
+### `flush(options?): Promise<FlushResult>`
 
-Flush all pending events immediately. When batching is enabled, flushes the batch queue. When batching is disabled, waits for all in-flight requests to complete.
+Flush pending events immediately. When batching is enabled, flushes one outstanding batch. The
+result is `drained`, `partial` (events remain pending after attempts), or `paused` (a server
+`Retry-After` deadline is active). Use `{ force: true }` for one explicit attempt during a pause.
 
 ```typescript
 await analytics.flush();
 ```
 
-### `shutdown(): Promise<void>`
+### `shutdown(): Promise<FlushResult>`
 
 Gracefully shuts down the core SDK, stops its batch timer, and flushes remaining events. The browser
-SDK override also stops autocapture and removes lifecycle listeners.
+SDK override also stops autocapture and removes lifecycle listeners. Persisted state is deleted only
+after an acknowledged empty drain; stalled state remains available for a later instance.
 
 ```typescript
 await analytics.shutdown();
@@ -202,6 +209,21 @@ Returns the number of events waiting to be sent. When batching is enabled, retur
 ```typescript
 console.log(analytics.pending); // 3
 ```
+
+### Delivery inspection
+
+`stats(): DeliveryStats` reports queue depth, in-flight and quarantined events, pause state, oldest
+queue age, delivery/retry/rate-limit/quota counters, drops, deduplications, storage restores, and
+the last delivery error. `quarantinedEvents()` returns bounded copies of events isolated after a
+permanent `400`/`413` rejection or a bounded drain give-up. `onDiagnostics` receives structured
+events such as `queue_overflow`, `storage_contention`, `rate_limited`, `accepted_quota_exceeded`,
+and `event_quarantined`.
+
+The worker distinguishes pre-acceptance `rate_limited` 429 responses from
+`monthly_event_quota_exceeded` responses emitted after ingestion. The latter is acknowledged and
+removed from the client queue; it is never replayed. Unknown outcomes and retryable failures reuse
+the original batch payload byte-for-byte. Known whole-batch `400` and `413` responses may create
+new child batches through adaptive bisection, with permanent leaves quarantined.
 
 ## Module-Level Convenience API
 
@@ -239,11 +261,11 @@ Calls `identify()` on the default instance. No-ops if `init()` has not been call
 
 Calls `page()` on the default instance. No-ops if `init()` has not been called.
 
-### `flush(): Promise<void>`
+### `flush(options?): Promise<FlushResult>`
 
 Calls `flush()` on the default instance.
 
-### `shutdown(): Promise<void>`
+### `shutdown(): Promise<FlushResult>`
 
 Calls `shutdown()` on the default instance and clears the reference.
 
@@ -258,6 +280,13 @@ Returns global properties from the default instance, or `{}` if `init()` has not
 ### `removeGlobalProperties(keys: string[]): void`
 
 Calls `removeGlobalProperties()` on the default instance. No-ops if `init()` has not been called.
+
+### `stats(): DeliveryStats`
+
+Returns queue depth, in-flight and quarantined counts, pause state, queue age, delivery/retry/
+rate-limit/quota counters, drop and deduplication counters, storage restores, and the last delivery
+error. `quarantinedEvents()` returns bounded copies of events isolated after permanent rejection or
+a bounded drain give-up.
 
 ### `clearGlobalProperties(): void`
 
@@ -353,6 +382,13 @@ When `batching: true` (default), events are queued in a `BatchManager`:
 
 When `batching: false`, each event is wrapped in its own `BatchPayload` and sent immediately via `HttpTransport`. In-flight requests are tracked and awaited on `flush()` or `shutdown()`.
 
+Set `persistence: true` (or provide `PersistenceOptions.storage`) to write queued and in-flight
+batches to an append-log WAL. The key is fingerprinted by endpoint and API key. A retryable or
+unknown-outcome send reuses the original batch payload byte-for-byte; known whole-batch `400` and
+`413` responses are adaptively split and permanent leaves are quarantined. A pre-acceptance
+`rate_limited` 429 pauses delivery until its complete `Retry-After` deadline, while a typed
+`monthly_event_quota_exceeded` 429 acknowledges the already-ingested batch without replaying it.
+
 ## Session Management
 
 The SDK uses a `SessionManager` to maintain session and anonymous IDs:
@@ -399,13 +435,15 @@ When the page is hidden or receives `pagehide`, queued events are sent in one bo
 - `Authorization: Bearer <apiKey>` header
 - `Content-Type: application/json` header
 - Automatic retries up to `maxRetries` (default 3) with exponential backoff
+- `Retry-After` support with a five-minute maximum queue-pause deadline
 
 ## Error Handling
 
 - `Alitycs.init()` throws `"apiKey is required"` if the API key is missing or empty.
 - `track()`, `captureError()`, `identify()`, and `page()` silently no-op on invalid input (empty event name, empty error name, empty user ID).
 - Auto-capture errors are caught internally and never propagate to the host page.
-- Transport failures are retried automatically; after `maxRetries`, the event is dropped.
+- Transport failures are retried automatically; durable batching retains the batch after
+  `maxRetries` so a later flush or restart can retry it with stable event identity.
 
 ## Exported Types
 

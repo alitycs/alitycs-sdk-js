@@ -1,0 +1,79 @@
+{
+  "name": "@alitycs/react",
+  "version": "1.0.0",
+  "description": "React bindings for @alitycs/browser — provider, hooks, SSR-safe",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "bun build src/index.ts --outfile=dist/index.esm.js --target=browser --format=esm --external @alitycs/core --external @alitycs/browser --external react --external react-dom",
+    "build:cjs": "bun build src/index.ts --outfile=dist/index.js --target=node --format=cjs --external @alitycs/core --external @alitycs/browser --external react --external react-dom",
+    "build:types": "tsc -p tsconfig.build.json",
+    "build:all": "bun run build && bun run build:cjs && bun run build:types",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src/**/*.tsx src/**/*.ts tests/**/*.tsx tests/**/*.ts",
+    "lint:fix": "eslint src/**/*.tsx src/**/*.ts tests/**/*.tsx tests/**/*.ts --fix",
+    "format": "prettier --write src/**/*.tsx src/**/*.ts tests/**/*.tsx tests/**/*.ts",
+    "format:check": "prettier --check src/**/*.tsx src/**/*.ts tests/**/*.tsx tests/**/*.ts"
+  },
+  "dependencies": {
+    "@alitycs/browser": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.2.13",
+    "@types/react-dom": "^19.2.3",
+    "bun-types": "^1.3.10",
+    "eslint": "^10.8.1",
+    "globals": "^17.11.0",
+    "happy-dom": "^20.11.2",
+    "prettier": "^3.9.6",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.67.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alitycs/alitycs-sdk-js.git",
+    "directory": "sdks/react"
+  },
+  "homepage": "https://github.com/alitycs/alitycs-sdk-js/tree/main/sdks/react#readme",
+  "bugs": {
+    "url": "https://github.com/alitycs/alitycs-sdk-js/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "keywords": [
+    "analytics",
+    "tracking",
+    "react",
+    "sdk",
+    "events",
+    "ssr"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "bun": ">=1.0.0"
+  }
+}

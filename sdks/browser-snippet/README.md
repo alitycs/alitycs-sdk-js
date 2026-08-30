@@ -46,14 +46,14 @@ alitycs.track('cta_clicked', { placement: 'hero' }).page('Checkout');
 
 ## Configuration
 
-| Attribute           | Default                          | Description                                                     |
-| ------------------- | -------------------------------- | --------------------------------------------------------------- |
-| `data-api-key`      | required                         | Publishable Alitycs key                                         |
-| `data-sdk-url`      | Alitycs browser CDN URL          | Full browser SDK URL                                            |
-| `data-endpoint`     | `https://api.alitycs.com/events` | Custom worker ingestion endpoint                                |
-| `data-auto-track`   | `true`                           | Queue the initial page event                                    |
-| `data-auto-capture` | `false`                          | Capture the initial page and SPA navigations in the browser SDK |
-| `data-debug`        | `false`                          | Enable loader diagnostics                                       |
+| Attribute           | Default                                        | Description                                                     |
+| ------------------- | ---------------------------------------------- | --------------------------------------------------------------- |
+| `data-api-key`      | required                                       | Publishable Alitycs key                                         |
+| `data-sdk-url`      | Build-pinned `@alitycs/browser` jsDelivr URL   | Full browser SDK URL; override it when self-hosting             |
+| `data-endpoint`     | `https://api.alitycs.com/events`               | Custom worker ingestion endpoint                                |
+| `data-auto-track`   | `true`                                         | Queue the initial page event                                    |
+| `data-auto-capture` | `false`                                        | Capture the initial page and SPA navigations in the browser SDK |
+| `data-debug`        | `false`                                        | Enable loader diagnostics                                       |
 
 The snippet never calls `/v1/*`; those routes belong to the authenticated analytics read API.
 

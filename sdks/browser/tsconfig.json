@@ -15,7 +15,8 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["bun-types"],
     "paths": {
-      "@alitycs/core": ["../core/src/index.ts"]
+      "@alitycs/core": ["../core/src/index.ts"],
+      "@alitycs/core/*": ["../core/src/*"]
     }
   },
   "include": ["src/**/*", "tests/**/*"],

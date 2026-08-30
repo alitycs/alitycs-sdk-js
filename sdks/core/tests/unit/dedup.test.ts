@@ -88,4 +88,27 @@ describe('EventDeduplicator', () => {
     // The first 50 expired entries should have been cleaned
     expect(dedup.size).toBe(50);
   });
+
+  test('eviction prefers expired entries over oldest live ones', () => {
+    // 9_000 long-lived entries inserted before 1_000 soon-to-expire ones: under FIFO eviction
+    // the L keys would go first, under expiry-first eviction every E key goes instead.
+    for (let i = 0; i < 9_000; i++) {
+      dedup.isDuplicate(`L-${i}`, 60_000);
+    }
+    now += 1_000;
+    for (let i = 0; i < 1_000; i++) {
+      dedup.isDuplicate(`E-${i}`, 50);
+    }
+    now += 100; // E-* expired, L-* still live
+    expect(dedup.size).toBe(10_000);
+
+    // Overflow by one — call count stays off the cleanup interval so evict() does the work.
+    // Expiry-first eviction removes exactly the 1_000 dead E entries and nothing else.
+    expect(dedup.isDuplicate('N-0', 60_000)).toBe(false);
+    expect(dedup.size).toBe(9_001);
+
+    expect(dedup.isDuplicate('L-0', 60_000)).toBe(true);
+    expect(dedup.isDuplicate('N-0', 60_000)).toBe(true);
+    expect(dedup.isDuplicate('E-0', 500)).toBe(false);
+  });
 });

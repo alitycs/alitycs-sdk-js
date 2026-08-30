@@ -151,6 +151,43 @@ describe('initializeFromSnippet', () => {
     expect(allEvents[3].eventType).toBe('page');
   });
 
+  test('queued calls outside the public API surface are skipped, not dispatched', async () => {
+    const { initializeFromSnippet } = await import('../../src/browser');
+
+    const warnings: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => warnings.push(args);
+
+    (globalThis as any).window.alitycs = {
+      _config: { apiKey: 'test-key' },
+      _queue: [
+        { method: 'track', args: ['kept'], timestamp: Date.now() },
+        // Internals and lifecycle methods must never be invokable through the snippet queue.
+        { method: 'shutdown', args: [], timestamp: Date.now() },
+        { method: 'flush', args: [], timestamp: Date.now() },
+        { method: 'getGlobalProperties', args: [], timestamp: Date.now() },
+        { method: 'drop_database', args: ['/etc'], timestamp: Date.now() },
+      ],
+      loaded: false,
+    };
+
+    try {
+      initializeFromSnippet();
+
+      const sdk = (globalThis as any).window.AlitycsSDK;
+      expect(sdk).toBeDefined();
+      expect(sdk.isShutdown).toBe(false);
+
+      await sdk.flush();
+
+      expect(sentPayloads.flatMap((p: BatchPayload) => p.events).map((e: any) => e.event)).toEqual(['kept']);
+      expect(warnings.some(args => args.includes('shutdown'))).toBe(true);
+      expect(warnings.some(args => args.includes('drop_database'))).toBe(true);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
   test('queued setGlobalProperties calls are replayed', async () => {
     const { initializeFromSnippet } = await import('../../src/browser');
 

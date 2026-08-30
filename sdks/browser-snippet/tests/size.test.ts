@@ -36,3 +36,7 @@ test('snippet.min.js raw size is reasonable', () => {
 
   console.log(`📄 Raw size: ${size} bytes (${(size / 1024).toFixed(2)} KB)`);
 });
+
+test('type declarations ship alongside the bundle', () => {
+  expect(() => statSync(join(__dirname, '..', 'dist', 'snippet.d.ts'))).not.toThrow();
+});

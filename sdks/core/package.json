@@ -10,6 +10,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.esm.js",
       "require": "./dist/index.js"
+    },
+    "./standalone": {
+      "types": "./dist/standalone.d.ts",
+      "import": "./dist/standalone.esm.js",
+      "require": "./dist/standalone.js"
     }
   },
   "files": [
@@ -21,7 +26,8 @@
     "build": "bun build src/index.ts --outfile=dist/index.esm.js --target=node --format=esm",
     "build:cjs": "bun build src/index.ts --outfile=dist/index.js --target=node --format=cjs",
     "build:types": "tsc -p tsconfig.build.json",
-    "build:all": "bun run build && bun run build:cjs && bun run build:types",
+    "build:standalone": "bun build src/standalone.ts --outfile=dist/standalone.esm.js --target=browser --format=esm && bun build src/standalone.ts --outfile=dist/standalone.js --target=node --format=cjs",
+    "build:all": "bun run build && bun run build:cjs && bun run build:standalone && bun run build:types",
     "test": "bun test",
     "test:coverage": "bun test --coverage",
     "test:unit": "bun test tests/unit",

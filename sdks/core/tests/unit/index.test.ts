@@ -1,6 +1,8 @@
 import { describe, test, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { Alitycs } from '../../src/index';
 import type { BatchPayload } from '../../src/types';
+import { MemoryEventStorage } from '../../src/storage';
+import { eventStorageKey } from '../../src/persistence';
 
 describe('Alitycs', () => {
   let originalFetch: typeof globalThis.fetch;
@@ -174,6 +176,111 @@ describe('Alitycs', () => {
     await sdk.shutdown();
   });
 
+  test('alias() emits a reserved $alias identity event', async () => {
+    const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+    sdk.alias('anon_legacy');
+    sdk.track('after_alias');
+
+    await sdk.flush();
+
+    const events = sentPayloads[0].events;
+    expect(events[0]).toMatchObject({
+      event: '$alias',
+      eventType: 'identify',
+      properties: { previousId: 'anon_legacy' },
+    });
+    // Alias does not change ambient identity — it only links histories.
+    expect(events[1].event).toBe('after_alias');
+
+    await sdk.shutdown();
+  });
+
+  test('alias() silently no-ops on a blank previous id', () => {
+    const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+    sdk.alias('');
+    sdk.alias('   ');
+
+    expect(sdk.pending).toBe(0);
+    sdk.shutdown();
+  });
+
+  test('set() and setOnce() emit reserved trait events with serialized values', async () => {
+    const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+    sdk.set({ plan: 'pro', seats: 3 });
+    sdk.setOnce({ source: 'signup-modal' });
+
+    await sdk.flush();
+
+    const events = sentPayloads[0].events;
+    expect(events[0]).toMatchObject({
+      event: '$set',
+      eventType: 'identify',
+      properties: { plan: 'pro', seats: '3' },
+    });
+    expect(events[1]).toMatchObject({
+      event: '$set_once',
+      eventType: 'identify',
+      properties: { source: 'signup-modal' },
+    });
+
+    await sdk.shutdown();
+  });
+
+  test('set() silently no-ops on empty traits', () => {
+    const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+    sdk.set({});
+    sdk.setOnce({});
+    sdk.set(undefined as unknown as Record<string, unknown>);
+
+    expect(sdk.pending).toBe(0);
+    sdk.shutdown();
+  });
+
+  test('set() drops oversized trait maps through the normal limit path', async () => {
+    const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+    const tooManyTraits: Record<string, number> = {};
+    for (let i = 0; i < 51; i++) tooManyTraits[`trait_${i}`] = i;
+    sdk.set(tooManyTraits);
+    await sdk.flush();
+
+    expect(sentPayloads.length).toBe(0);
+    expect(sdk.droppedEvents).toBe(1);
+
+    await sdk.shutdown();
+  });
+
+  test('unset() encodes the key list as JSON in $keys', async () => {
+    const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+    sdk.unset(['plan', 'trial_end']);
+    await sdk.flush();
+
+    expect(sentPayloads[0].events[0]).toMatchObject({
+      event: '$unset',
+      eventType: 'identify',
+      properties: { $keys: '["plan","trial_end"]' },
+    });
+
+    await sdk.shutdown();
+  });
+
+  test('unset() filters blank keys and no-ops when nothing remains', () => {
+    const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+
+    sdk.unset(['']);
+    sdk.unset([]);
+    sdk.unset(['plan', '', '  ']);
+
+    // Only the valid keys from the last call survive.
+    expect(sdk.pending).toBe(1);
+    sdk.shutdown();
+  });
+
   test('restores the identified user from persisted session state', async () => {
     const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
     const values = new Map<string, string>();
@@ -205,6 +312,67 @@ describe('Alitycs', () => {
         delete (globalThis as { localStorage?: unknown }).localStorage;
       }
     }
+  });
+
+  test('session rotation clears a stale identified userId', async () => {
+    const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    const values = new Map<string, string>();
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => values.get(key) ?? null,
+        removeItem: (key: string) => values.delete(key),
+        setItem: (key: string, value: string) => values.set(key, value),
+      },
+    });
+    const originalNow = Date.now;
+    let now = 1_700_000_000_000;
+    Date.now = () => now;
+
+    try {
+      const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
+      sdk.identify('user-stale');
+
+      now += 31 * 60 * 1000; // Session times out at 30 minutes of inactivity.
+      sdk.track('after_rotation');
+      await sdk.flush();
+
+      const rotated = sentPayloads[0].events.find(event => event.event === 'after_rotation')!;
+      expect(rotated.userId).toBeUndefined();
+      expect(rotated.anonymousId).toMatch(/^anon_/);
+      await sdk.shutdown();
+    } finally {
+      Date.now = originalNow;
+      if (originalStorage) {
+        Object.defineProperty(globalThis, 'localStorage', originalStorage);
+      } else {
+        delete (globalThis as { localStorage?: unknown }).localStorage;
+      }
+    }
+  });
+
+  test('init() rejects degenerate batching configuration instead of dropping everything silently', () => {
+    expect(() => Alitycs.init({ apiKey: 'test-key', maxQueueSize: 0 })).toThrow('must be positive numbers');
+    expect(() => Alitycs.init({ apiKey: 'test-key', flushSize: 0 })).toThrow('must be positive numbers');
+    expect(() => Alitycs.init({ apiKey: 'test-key', flushInterval: 0 })).toThrow('must be positive numbers');
+    expect(() => Alitycs.init({ apiKey: 'test-key', maxQueueSize: Number.NaN })).toThrow('must be positive numbers');
+  });
+
+  test('trackRevenue() rejects missing or blank factId with the contract error, not a TypeError', () => {
+    const sdk = Alitycs.init({ apiKey: 'secret-revenue-key' });
+    expect(() => sdk.trackRevenue({ version: 1, kind: 'transaction', amount: '1', currency: 'USD' } as any)).toThrow(
+      'factId between 1 and 200 characters'
+    );
+    expect(() =>
+      sdk.trackRevenue({
+        version: 1,
+        kind: 'transaction',
+        factId: '   ',
+        amount: '1',
+        currency: 'USD',
+      })
+    ).toThrow('factId between 1 and 200 characters');
+    sdk.shutdown();
   });
 
   test('page() creates a page event', async () => {
@@ -254,6 +422,43 @@ describe('Alitycs', () => {
     await sdk.shutdown();
   });
 
+  test('diagnostics and stats expose validation, dedupe, overflow, and delivery counters', async () => {
+    const codes: string[] = [];
+    const dynamicCodes: string[] = [];
+    const sdk = Alitycs.init({
+      apiKey: 'test-key',
+      flushSize: 100,
+      maxQueueSize: 1,
+      onDiagnostics: event => codes.push(event.code),
+    });
+    const removeDiagnostics = sdk.addDiagnosticsListener(event => dynamicCodes.push(event.code));
+
+    sdk.track('kept', undefined, { dedupeKey: 'same' });
+    sdk.track('duplicate', undefined, { dedupeKey: 'same' });
+    sdk.track('overflowed');
+    sdk.track('invalid', Object.fromEntries(Array.from({ length: 51 }, (_, index) => [`k${index}`, index])));
+
+    expect(codes).toContain('deduplicated');
+    expect(codes).toContain('queue_overflow');
+    expect(codes).toContain('invalid_event');
+    expect(dynamicCodes).toContain('queue_overflow');
+    removeDiagnostics();
+    expect(sdk.stats()).toMatchObject({
+      queueDepth: 1,
+      quarantined: 0,
+      droppedOverflow: 1,
+      droppedInvalid: 1,
+      droppedTotal: 2,
+      deduplicated: 1,
+    });
+
+    const result = await sdk.flush();
+    expect(result).toEqual({ status: 'drained', delivered: 1, pending: 0 });
+    expect(sdk.stats().delivered).toBe(1);
+
+    await sdk.shutdown();
+  });
+
   test('shutdown() flushes remaining events', async () => {
     const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
 
@@ -292,6 +497,25 @@ describe('Alitycs', () => {
     await sdk.shutdown();
   });
 
+  test('clean persistent shutdown removes the WAL after an acknowledged drain', async () => {
+    const storage = new MemoryEventStorage();
+    const endpoint = 'https://persist.test/events';
+    const sdk = Alitycs.init({
+      apiKey: 'persist-key',
+      endpoint,
+      flushSize: 100,
+      persistence: { storage },
+    });
+
+    sdk.track('persisted_event');
+    expect(storage.getItem(eventStorageKey(endpoint, 'persist-key'))).toContain('persisted_event');
+
+    const result = await sdk.shutdown();
+
+    expect(result.status).toBe('drained');
+    expect(storage.getItem(eventStorageKey(endpoint, 'persist-key'))).toBeNull();
+  });
+
   test('batch payload has correct structure', async () => {
     const sdk = Alitycs.init({ apiKey: 'test-key', flushSize: 100 });
 
@@ -303,6 +527,54 @@ describe('Alitycs', () => {
     expect(typeof payload.sentAt).toBe('number');
     expect(Array.isArray(payload.events)).toBe(true);
 
+    await sdk.shutdown();
+  });
+
+  test('module-level flush, shutdown, stats, and quarantine accessors are safe before init', async () => {
+    const moduleApi = await import('../../src/index');
+    expect(await moduleApi.flush()).toEqual({ status: 'drained', delivered: 0, pending: 0 });
+    expect(await moduleApi.shutdown()).toEqual({ status: 'drained', delivered: 0, pending: 0 });
+    expect(moduleApi.stats()).toMatchObject({ queueDepth: 0, inFlight: 0, lastError: null });
+    expect(moduleApi.quarantinedEvents()).toEqual([]);
+  });
+
+  test('page-exit helpers save state and force one bounded flush', async () => {
+    class ExitClient extends Alitycs {
+      static create() {
+        return new ExitClient({
+          apiKey: 'test-key',
+          endpoint: 'https://api.test.com/events',
+          flushInterval: 60_000,
+          flushSize: 100,
+          maxQueueSize: 100,
+          maxRetries: 0,
+          debug: false,
+          sessionTimeout: 30 * 60 * 1000,
+          batching: true,
+        });
+      }
+
+      exitFlush() {
+        return this.flushForPageExit();
+      }
+
+      saveExit() {
+        this.saveNowForPageExit();
+      }
+
+      resume() {
+        this.rearmAfterPageShow();
+      }
+    }
+
+    const sdk = ExitClient.create();
+    sdk.track('exit-helper');
+    sdk.saveExit();
+    const result = await sdk.exitFlush();
+    expect(result).toEqual({ status: 'drained', delivered: 1, pending: 0 });
+    expect(sdk.isShutdown).toBe(false);
+    sdk.resume();
+    expect(sdk.quarantinedEvents()).toEqual([]);
     await sdk.shutdown();
   });
 
@@ -406,6 +678,45 @@ describe('Alitycs', () => {
       expect(Array.isArray(payload.events)).toBe(true);
       expect(payload.events.length).toBe(1);
 
+      await sdk.shutdown();
+    });
+
+    test('failed non-batching sends update diagnostics and stats without throwing', async () => {
+      const diagnostics: string[] = [];
+      globalThis.fetch = mock(async () => {
+        throw new Error('non-batching network failure');
+      }) as any;
+      const sdk = Alitycs.init({
+        apiKey: 'test-key',
+        batching: false,
+        maxRetries: 0,
+        onDiagnostics: event => diagnostics.push(event.code),
+      });
+
+      sdk.track('instant_failure');
+      await sdk.flush();
+
+      expect(diagnostics).toContain('delivery_failed');
+      expect(sdk.stats()).toMatchObject({ failedDeliveries: 1, inFlight: 0 });
+      await sdk.shutdown();
+    });
+
+    test('a rejected non-batching transport promise is isolated from the caller', async () => {
+      const diagnostics: string[] = [];
+      const sdk = Alitycs.init({
+        apiKey: 'test-key',
+        batching: false,
+        onDiagnostics: event => diagnostics.push(event.code),
+      });
+      (sdk as unknown as { transport: { send: () => Promise<never> } }).transport.send = async () => {
+        throw new Error('transport promise rejected');
+      };
+
+      sdk.track('rejected_promise');
+      await sdk.flush();
+
+      expect(diagnostics).toContain('delivery_failed');
+      expect(sdk.stats().failedDeliveries).toBe(1);
       await sdk.shutdown();
     });
   });
@@ -548,6 +859,10 @@ describe('Alitycs', () => {
         trackRevenue: moduleTrackRevenue,
         captureError: moduleCaptureError,
         identify: moduleIdentify,
+        alias: moduleAlias,
+        set: moduleSet,
+        setOnce: moduleSetOnce,
+        unset: moduleUnset,
         reset: moduleReset,
         page: modulePage,
         flush: moduleFlush,
@@ -562,6 +877,10 @@ describe('Alitycs', () => {
       moduleRemoveGlobal(['removed']);
       moduleIdentify('module-user', { plan: 'pro' });
       moduleCaptureError('module_error', { retryable: false });
+      moduleAlias('module-anonymous');
+      moduleSet({ role: 'admin' });
+      moduleSetOnce({ source: 'test' });
+      moduleUnset(['role']);
       modulePage('Module page', { url: 'not a standard URL', referrer: 'https://referrer.test/' });
       moduleTrackRevenue({
         version: 1,
@@ -580,6 +899,10 @@ describe('Alitycs', () => {
       expect(events.map(event => event.event)).toEqual([
         'identify',
         'module_error',
+        '$alias',
+        '$set',
+        '$set_once',
+        '$unset',
         'Module page',
         'revenue_transaction',
         'after_reset',
@@ -588,7 +911,7 @@ describe('Alitycs', () => {
       expect(events[0].properties).toMatchObject({ retained: 'true', plan: 'pro' });
       expect(events[0].properties.removed).toBeUndefined();
       expect(events.at(-1)?.properties.retained).toBeUndefined();
-      expect(events[4].userId).toBeUndefined();
+      expect(events[8].userId).toBeUndefined();
       await moduleShutdown();
     });
 
@@ -699,6 +1022,144 @@ describe('Alitycs', () => {
       expect(sentPayloads[0].events.length).toBe(1);
 
       await moduleShutdown();
+    });
+  });
+
+  describe('client-side event limits', () => {
+    test('tracks within limits pass through untouched', async () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+
+      sdk.track('ok_event', { alpha: 'a'.repeat(1000) });
+      expect(sdk.pending).toBe(1);
+      expect(sdk.droppedEvents).toBe(0);
+
+      await sdk.flush();
+      expect(sentPayloads[0].events).toHaveLength(1);
+      await sdk.shutdown();
+    });
+
+    test('rejects more than 50 properties', async () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+      const properties: Record<string, number> = {};
+      for (let i = 0; i < 51; i++) properties[`p${i}`] = i;
+
+      sdk.track('too_many_properties', properties);
+
+      expect(sdk.pending).toBe(0);
+      expect(sdk.droppedEvents).toBe(1);
+      await sdk.shutdown();
+    });
+
+    test('rejects property keys over 100 characters', () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+
+      sdk.track('long_key', { k: 'x' }); // warm the queue
+      sdk.track('long_key', { ['k'.repeat(101)]: 'v' });
+
+      expect(sdk.pending).toBe(1);
+      expect(sdk.droppedEvents).toBe(1);
+      sdk.shutdown();
+    });
+
+    test('rejects property values over 1000 characters', () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+
+      sdk.track('huge_value', { blob: 'x'.repeat(1001) });
+
+      expect(sdk.pending).toBe(0);
+      expect(sdk.droppedEvents).toBe(1);
+      sdk.shutdown();
+    });
+
+    test('rejects events estimated above 64KB', () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+
+      // Per-key/value shapes stay legal here — the huge action name blows the budget.
+      sdk.track('e'.repeat(70_000));
+
+      expect(sdk.pending).toBe(0);
+      expect(sdk.droppedEvents).toBe(1);
+      sdk.shutdown();
+    });
+
+    test('measures the 64KB event limit in serialized UTF-8 bytes', () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+      const properties: Record<string, string> = {};
+      for (let i = 0; i < 50; i += 1) properties[`p${i}`] = '😀'.repeat(500);
+
+      // Each value is exactly 1,000 UTF-16 code units (the per-value limit),
+      // but 2,000 UTF-8 bytes. The serialized event must therefore be rejected.
+      sdk.track('unicode_payload', properties);
+
+      expect(sdk.pending).toBe(0);
+      expect(sdk.droppedEvents).toBe(1);
+      sdk.shutdown();
+    });
+
+    test('accepts an event at the exact per-field limits', () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+      const properties: Record<string, string> = {};
+      for (let i = 0; i < 50; i++) {
+        properties[`k${i}`.padEnd(100 - String(i).length, 'z') + String(i)] = 'v'.repeat(1000);
+      }
+
+      sdk.track('at_limits', properties);
+
+      expect(sdk.pending).toBe(1);
+      expect(sdk.droppedEvents).toBe(0);
+      sdk.shutdown();
+    });
+
+    test('rejects blank event names', () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+
+      sdk.track('   ');
+
+      expect(sdk.pending).toBe(0);
+      expect(sdk.droppedEvents).toBe(1);
+      sdk.shutdown();
+    });
+
+    test('rejects second-based timestamps', () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+
+      // pageAt() feeds captured timestamps; a seconds-sent value must be dropped.
+      (sdk as any).pageAt(1690000000, 'Seconds not millis');
+
+      expect(sdk.pending).toBe(0);
+      expect(sdk.droppedEvents).toBe(1);
+      sdk.shutdown();
+    });
+
+    test('rejects events without any identity', () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+      (sdk as any).sessionManager.getSession = () => ({
+        id: 'sess_x',
+        anonymousId: '',
+        startTime: Date.now(),
+        lastActivity: Date.now(),
+      });
+
+      sdk.track('no_identity');
+
+      expect(sdk.pending).toBe(0);
+      expect(sdk.droppedEvents).toBe(1);
+      sdk.shutdown();
+    });
+
+    test('rejections are logged even when debug is off', () => {
+      const originalWarn = console.warn;
+      const warnings: unknown[][] = [];
+      console.warn = (...args: unknown[]) => warnings.push(args);
+      try {
+        const sdk = Alitycs.init({ apiKey: 'key', debug: false, flushSize: 100 });
+        sdk.track('huge_value', { blob: 'x'.repeat(1001) });
+        sdk.shutdown();
+
+        expect(warnings.some(args => String(args.join(' ')).includes('Event dropped'))).toBe(true);
+      } finally {
+        console.warn = originalWarn;
+      }
     });
   });
 
