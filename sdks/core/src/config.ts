@@ -24,13 +24,17 @@ export function resolveAlitycsConfig(
   if (!config.apiKey || config.apiKey.trim() === '') throw new Error('apiKey is required');
 
   const merged = { ...DEFAULTS, ...defaults, ...config };
-  const persistence = normalizePersistence(config.persistence);
-  return {
+  const persistence = normalizePersistence(merged.persistence);
+  const resolved = {
     ...merged,
     apiKey: config.apiKey,
     persistence,
     overflowPolicy: config.overflowPolicy ?? merged.overflowPolicy,
   } as ResolvedConfig;
+  if (!(resolved.flushSize >= 1) || !(resolved.maxQueueSize >= 1) || !(resolved.flushInterval >= 1)) {
+    throw new Error('flushSize, maxQueueSize, and flushInterval must be positive numbers');
+  }
+  return resolved;
 }
 
 function normalizePersistence(value: boolean | PersistenceOptions | undefined): false | PersistenceOptions {

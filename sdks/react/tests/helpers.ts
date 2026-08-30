@@ -29,6 +29,7 @@ const GLOBAL_KEYS = [
 ] as const;
 
 let installed = false;
+let savedDescriptors = new Map<(typeof GLOBAL_KEYS)[number], PropertyDescriptor | undefined>();
 
 /**
  * Installs happy-dom as the ambient DOM. Call once at module scope of a test
@@ -39,6 +40,7 @@ let installed = false;
 export function installDom(): void {
   if (installed) return;
   installed = true;
+  savedDescriptors = new Map(GLOBAL_KEYS.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const));
   const window = new Window({ url: 'https://app.alitycs.test/' });
   const define = (key: string, value: unknown) => {
     Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
@@ -56,9 +58,11 @@ export function uninstallDom(): void {
   if (!installed) return;
   installed = false;
   const globals = globalThis as unknown as Record<string, unknown>;
-  for (const key of GLOBAL_KEYS) {
-    delete globals[key];
+  for (const [key, descriptor] of savedDescriptors) {
+    if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+    else delete globals[key];
   }
+  savedDescriptors.clear();
 }
 
 /**

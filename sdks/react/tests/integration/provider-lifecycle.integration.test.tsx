@@ -23,6 +23,10 @@ describe('provider lifecycle over the wire', () => {
     installDom();
 
     const batches: CapturedBatch[] = [];
+    let resolveRequest!: () => void;
+    const requestReceived = new Promise<void>(resolve => {
+      resolveRequest = resolve;
+    });
     const server = Bun.serve({
       port: 0,
       fetch: async request => {
@@ -31,11 +35,17 @@ describe('provider lifecycle over the wire', () => {
           contentType: request.headers.get('content-type'),
           body: await request.json(),
         });
+        resolveRequest();
         return Response.json({ accepted: true });
       },
     });
 
     try {
+      let resolveQueued!: () => void;
+      const eventsQueued = new Promise<void>(resolve => {
+        resolveQueued = resolve;
+      });
+
       function Consumer(): null {
         const client = useAlitycs();
         // The client exists from the provider's very first client-side render,
@@ -51,6 +61,7 @@ describe('provider lifecycle over the wire', () => {
           client?.identify('usr_lifecycle', { plan: 'pro' });
           track('lifecycle_track', { n: 1 });
           track('lifecycle_second', { n: 2 });
+          resolveQueued();
         });
         return null;
       }
@@ -74,11 +85,11 @@ describe('provider lifecycle over the wire', () => {
       );
 
       // No explicit flush: only the unmount shutdown drains these.
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await eventsQueued;
       expect(batches.length).toBe(0);
 
       unmount();
-      await new Promise(resolve => setTimeout(resolve, 20));
+      await requestReceived;
 
       const delivered = batches.flatMap(batch => batch.body.events ?? []);
       expect(delivered.map(event => event.event).sort()).toEqual(['identify', 'lifecycle_second', 'lifecycle_track']);

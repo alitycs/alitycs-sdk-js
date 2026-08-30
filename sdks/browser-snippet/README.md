@@ -49,7 +49,7 @@ alitycs.track('cta_clicked', { placement: 'hero' }).page('Checkout');
 | Attribute           | Default                                        | Description                                                     |
 | ------------------- | ---------------------------------------------- | --------------------------------------------------------------- |
 | `data-api-key`      | required                                       | Publishable Alitycs key                                         |
-| `data-sdk-url`      | Directory the snippet itself was served from   | Full browser SDK URL                                            |
+| `data-sdk-url`      | Build-pinned `@alitycs/browser` jsDelivr URL   | Full browser SDK URL; override it when self-hosting             |
 | `data-endpoint`     | `https://api.alitycs.com/events`               | Custom worker ingestion endpoint                                |
 | `data-auto-track`   | `true`                                         | Queue the initial page event                                    |
 | `data-auto-capture` | `false`                                        | Capture the initial page and SPA navigations in the browser SDK |

@@ -290,7 +290,7 @@ export class AlitycsServer {
       )
     ) {
       return Promise.resolve({
-        status: "drained",
+        status: this.pending === 0 ? "drained" : "partial",
         delivered: 0,
         pending: this.pending,
       });

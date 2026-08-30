@@ -39,12 +39,7 @@ export interface AlitycsServerConfig extends Omit<AlitycsConfig, 'apiKey'> {
   apiKey?: string;
 }
 
-/**
- * The core client plus one capability `@alitycs/core` keeps private: switching
- * identity silently. `identify()` always emits an event, which is correct for
- * a real identification but wrong for scoping a single event to a user — that
- * has to be reversible without touching the wire.
- */
+/** Core client with request-scoped identity control through its protected adapter API. */
 class ScopedIdentityClient extends Alitycs {
   protected constructor(config: ResolvedConfig) {
     super(config);
@@ -56,19 +51,9 @@ class ScopedIdentityClient extends Alitycs {
     return new ScopedIdentityClient(resolveAlitycsConfig(config));
   }
 
-  /**
-   * Identity lives in a private core field that `enqueue()` snapshots into
-   * every event; `SessionManager` mirrors it but does not drive emission, so
-   * the accessor has to reach the field itself. The sibling package is
-   * workspace-pinned and the scoped-user tests fail loudly if it moves.
-   */
-  private get identity(): { userId?: string } {
-    return this as unknown as { userId?: string };
-  }
-
   /** The user id currently attached to every emitted event, if any. */
   get actingUserId(): string | undefined {
-    return this.identity.userId;
+    return this.actingUserIdForAdapter;
   }
 
   get persistenceEnabled(): boolean {
@@ -81,13 +66,7 @@ class ScopedIdentityClient extends Alitycs {
    * behind.
    */
   set actingUserId(userId: string | undefined) {
-    if (this.identity.userId === userId) return;
-    this.identity.userId = userId;
-    if (userId === undefined) {
-      this.sessionManager.getSession().userId = undefined;
-    } else {
-      this.sessionManager.setUserId(userId);
-    }
+    this.actingUserIdForAdapter = userId;
   }
 }
 
@@ -156,7 +135,7 @@ export class AlitycsServer {
   trackRevenue(
     payload: RevenuePayload,
     properties?: Record<string, unknown>,
-    options?: ServerEventOptions
+    options?: Pick<ServerEventOptions, 'userId'>
   ): Promise<FlushResult> {
     return this.emit(options?.userId, client => client.trackRevenue(payload, properties));
   }
@@ -193,6 +172,7 @@ export class AlitycsServer {
    */
   shutdown(): Promise<FlushResult> {
     const client = instance;
+    overrides = undefined;
     if (!client) return Promise.resolve({ status: 'drained', delivered: 0, pending: 0 });
     instance = undefined;
     return client.shutdown();

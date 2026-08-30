@@ -103,6 +103,12 @@ describe('serializeProperties', () => {
     expect(result).toEqual({ data: '[unserializable]' });
   });
 
+  test('replaces objects whose toJSON returns undefined with a placeholder', () => {
+    expect(serializeProperties({ data: { toJSON: () => undefined } })).toEqual({
+      data: '[unserializable]',
+    });
+  });
+
   test('a throwing property does not prevent later properties from serializing', () => {
     const circular: Record<string, unknown> = {};
     circular.self = circular;

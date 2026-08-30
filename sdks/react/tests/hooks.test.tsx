@@ -135,10 +135,15 @@ describe('useTrack', () => {
   test('events queued through useTrack reach the wire', async () => {
     const sent: Array<{ events?: Array<{ event: string; properties?: Record<string, unknown> }> }> =
       [];
+    let resolveRequest!: () => void;
+    const requestReceived = new Promise<void>(resolve => {
+      resolveRequest = resolve;
+    });
     const server = Bun.serve({
       port: 0,
       fetch: async (request) => {
         sent.push(await request.json());
+        resolveRequest();
         return Response.json({ accepted: true });
       },
     });
@@ -166,13 +171,7 @@ describe('useTrack', () => {
         )
       );
 
-      await new Promise((resolve) => setTimeout(resolve, 0));
-
-      // Poll rather than sleep once: the POST is async and this stays
-      // wall-clock-free in structure (no flush-timing dependence).
-      for (let i = 0; i < 100 && sent.length === 0; i += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
+      await requestReceived;
 
       expect(sent.length).toBe(1);
       expect(sent[0].events?.[0]?.event).toBe('queued_event');

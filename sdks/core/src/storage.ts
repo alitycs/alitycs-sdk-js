@@ -50,7 +50,12 @@ export function selectEventStorage(storage?: EventStorage | null): EventStorage 
 
 function getBrowserStorage(): EventStorage | null {
   if (typeof globalThis === 'undefined') return null;
-  const candidate = (globalThis as Record<string, unknown>).localStorage;
-  if (!candidate || typeof candidate !== 'object') return null;
-  return candidate as EventStorage;
+  try {
+    const candidate = (globalThis as Record<string, unknown>).localStorage;
+    if (!candidate || typeof candidate !== 'object') return null;
+    return candidate as EventStorage;
+  } catch {
+    // Sandboxed iframes can throw on the property access itself.
+    return null;
+  }
 }

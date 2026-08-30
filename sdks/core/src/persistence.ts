@@ -23,7 +23,7 @@ export interface PersistenceLoadResult {
   nextSeq: number;
   enabled: boolean;
   contention: boolean;
-  /** Events intentionally omitted by the configured restore cap. */
+  /** Events intentionally omitted by the configured restore age or count limits. */
   truncatedEvents: number;
 }
 
@@ -188,16 +188,21 @@ export class EventPersistence {
     const acknowledgements = new Set(
       records.filter((record): record is AckRecord => record.t === 'a').map(record => record.batchId)
     );
-    const pending = records
-      .filter((record): record is BatchRecord => record.t === 'b' && !acknowledgements.has(record.batchId))
-      .map(record => restoreBatch(record, this.now(), this.options.maxRestoredAgeMs));
+    const pendingRecords = records.filter(
+      (record): record is BatchRecord => record.t === 'b' && !acknowledgements.has(record.batchId)
+    );
+    const pending = pendingRecords.map(record => restoreBatch(record, this.now(), this.options.maxRestoredAgeMs));
     const restoredPending = pending.filter((batch): batch is PersistedBatch => batch !== null);
-    const pendingEventIds = new Set(restoredPending.flatMap(batch => batch.events.map(event => event.eventId)));
-    const queued = records
-      .filter((record): record is EventRecord => record.t === 'e' && !pendingEventIds.has(record.event.eventId))
+    const pendingAgeTruncated = countEvents(pendingRecords) - countEvents(restoredPending);
+    const pendingEventIds = new Set(pendingRecords.flatMap(batch => batch.events.map(event => event.eventId)));
+    const queuedRecords = records.filter(
+      (record): record is EventRecord => record.t === 'e' && !pendingEventIds.has(record.event.eventId)
+    );
+    const queued = queuedRecords
       .map(record => restoreQueuedEvent(record, this.now(), this.options.maxRestoredAgeMs))
       .filter((event): event is PersistedQueuedEvent => event !== null)
       .sort((left, right) => left.seq - right.seq);
+    const queuedAgeTruncated = queuedRecords.length - queued.length;
 
     const cappedPending = capPending(restoredPending, this.options.maxRestoredEvents);
     const pendingTruncated = countEvents(restoredPending) - countEvents(cappedPending);
@@ -211,7 +216,7 @@ export class EventPersistence {
       nextSeq: this.nextSeq,
       enabled: this.active,
       contention: false,
-      truncatedEvents: pendingTruncated + queuedTruncated,
+      truncatedEvents: pendingAgeTruncated + queuedAgeTruncated + pendingTruncated + queuedTruncated,
     };
   }
 
@@ -373,6 +378,13 @@ export class EventPersistence {
 
   private disable(message: string, error?: unknown): void {
     this.active = false;
+    // A disabled log can no longer receive acknowledgements. Remove it so a
+    // later process cannot replay batches that this process already delivered.
+    try {
+      this.storage?.removeItem(this.key);
+    } catch {
+      // Best effort: the original storage failure remains the actionable error.
+    }
     this.onError?.(message, error);
   }
 }

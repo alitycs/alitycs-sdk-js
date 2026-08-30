@@ -1,4 +1,4 @@
-import { createContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { BrowserAlitycs, type BrowserConfig } from '@alitycs/browser';
 
 /**
@@ -31,6 +31,9 @@ interface SharedClient {
 }
 
 const sharedClients = new Map<string, SharedClient>();
+const subscribeToHydration = () => () => undefined;
+const clientSnapshot = () => true;
+const serverSnapshot = () => false;
 
 /** Stable identity for `{ apiKey, ...config }`: sorted-key JSON (functions excluded). */
 function configIdentity(apiKey: string, config?: Omit<BrowserConfig, 'apiKey'>): string {
@@ -85,9 +88,10 @@ function releaseClient(key: string, entry: SharedClient): void {
  * `typeof window === 'undefined'`, so on the server nothing is constructed and
  * children render unchanged — there is no window/document access at module
  * scope or anywhere else during render, and hydration produces identical
- * output. On the client the instance exists from the very first render, so
- * children can call it from their own mount effects (which run before this
- * provider's effects).
+ * output. On a client-only mount the instance is exposed from the first render.
+ * During hydration, `useSyncExternalStore` keeps the first context value equal
+ * to the server snapshot (`null`) and exposes the already-created client on the
+ * immediate post-hydration render.
  *
  * Lifecycle: providers sharing the same config identity share one client; the
  * client is shut down only after the last of them unmounts (deferred one tick).
@@ -95,6 +99,7 @@ function releaseClient(key: string, entry: SharedClient): void {
  * provider (React `key`) to join a different client.
  */
 export function AlitycsProvider({ apiKey, config, children }: AlitycsProviderProps) {
+  const canExposeClient = useSyncExternalStore(subscribeToHydration, clientSnapshot, serverSnapshot);
   const [shared] = useState<{ key: string; entry: SharedClient } | null>(() => {
     if (typeof window === 'undefined') return null;
     const key = configIdentity(apiKey, config);
@@ -123,5 +128,6 @@ export function AlitycsProvider({ apiKey, config, children }: AlitycsProviderPro
     return shared.entry.client.addDiagnosticsListener(config.onDiagnostics);
   }, [shared, config?.onDiagnostics]);
 
-  return <AlitycsContext.Provider value={shared?.entry.client ?? null}>{children}</AlitycsContext.Provider>;
+  const client = canExposeClient ? (shared?.entry.client ?? null) : null;
+  return <AlitycsContext.Provider value={client}>{children}</AlitycsContext.Provider>;
 }

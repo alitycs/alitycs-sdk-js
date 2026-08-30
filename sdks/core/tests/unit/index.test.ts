@@ -1082,6 +1082,20 @@ describe('Alitycs', () => {
       sdk.shutdown();
     });
 
+    test('measures the 64KB event limit in serialized UTF-8 bytes', () => {
+      const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
+      const properties: Record<string, string> = {};
+      for (let i = 0; i < 50; i += 1) properties[`p${i}`] = '😀'.repeat(500);
+
+      // Each value is exactly 1,000 UTF-16 code units (the per-value limit),
+      // but 2,000 UTF-8 bytes. The serialized event must therefore be rejected.
+      sdk.track('unicode_payload', properties);
+
+      expect(sdk.pending).toBe(0);
+      expect(sdk.droppedEvents).toBe(1);
+      sdk.shutdown();
+    });
+
     test('accepts an event at the exact per-field limits', () => {
       const sdk = Alitycs.init({ apiKey: 'key', flushSize: 100 });
       const properties: Record<string, string> = {};

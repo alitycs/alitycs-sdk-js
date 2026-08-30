@@ -49,6 +49,21 @@
     "AnalyticsEvent": {
       "type": "object",
       "required": ["eventId", "event", "eventType", "anonymousId", "sessionId", "timestamp", "properties", "context"],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "event": { "enum": ["$alias", "$set", "$set_once", "$unset"] }
+            },
+            "required": ["event"]
+          },
+          "then": {
+            "properties": {
+              "eventType": { "const": "identify" }
+            }
+          }
+        }
+      ],
       "properties": {
         "eventId": {
           "type": "string",

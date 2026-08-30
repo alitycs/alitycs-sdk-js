@@ -247,6 +247,24 @@ describe('@alitycs/nextjs/server', () => {
     expect(events().at(-1)?.event).toBe('fresh_client');
   });
 
+  test('shutdown clears configuration before the next client resolves environment defaults', async () => {
+    await freshClient({ apiKey: 'pk_before_shutdown' });
+    await mod.alitycs.track('before_shutdown');
+    await mod.alitycs.shutdown();
+
+    process.env.ALITYCS_API_KEY = 'pk_env_after_shutdown';
+    process.env.ALITYCS_ENDPOINT = capture.url;
+    try {
+      mod.configureAlitycs({ endpoint: capture.url });
+      await mod.alitycs.track('after_shutdown');
+      expect(capture.requests.at(-1)?.headers.authorization).toBe('Bearer pk_env_after_shutdown');
+    } finally {
+      delete process.env.ALITYCS_ENDPOINT;
+      delete process.env.ALITYCS_API_KEY;
+      await mod.alitycs.shutdown();
+    }
+  });
+
   test('shutdown with no client is a no-op', async () => {
     await mod.alitycs.shutdown();
     await mod.alitycs.shutdown(); // idempotent

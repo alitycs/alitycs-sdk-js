@@ -24,7 +24,7 @@ export interface TransportResult {
   status?: number;
   /** True when a later attempt may succeed (network error, timeout, 429, 5xx retries exhausted). */
   transient: boolean;
-  /** Server-directed delay, never capped; the batch manager persists the resulting deadline. */
+  /** Full server-directed delay; the batch manager persists the resulting deadline. */
   retryAfterMs?: number;
   /** Machine-readable response body code, when the server supplied one. */
   code?: string;
@@ -33,9 +33,10 @@ export interface TransportResult {
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
-/** Normal exponential backoff remains bounded; Retry-After uses the separate 60s slice rule. */
+/** Normal exponential backoff remains bounded. */
 const MAX_BACKOFF_MS = 10_000;
-const MAX_SLEEP_SLICE_MS = 60_000;
+/** Longer server pauses are returned to the batch manager instead of blocking this request. */
+const MAX_IN_ATTEMPT_RETRY_AFTER_MS = 60_000;
 
 export class HttpTransport {
   constructor(private config: TransportConfig) {}
@@ -52,11 +53,10 @@ export class HttpTransport {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (attempt > 0) {
         const backoff = Math.min(1000 * 2 ** (attempt - 1), MAX_BACKOFF_MS);
-        // A 429's Retry-After (seconds or HTTP-date) replaces the default schedule for
-        // the next attempt. Long server deadlines are slept in bounded chunks, but the
-        // deadline itself is never truncated.
+        // A short 429 Retry-After replaces the default schedule for the next attempt.
+        // Longer deadlines return from send() and are enforced by BatchManager's pause state.
         if (retryAfterMs === null) await (this.config.sleep ?? sleep)(backoff);
-        else await sleepUntil(retryAfterMs, this.config.sleep ?? sleep);
+        else await (this.config.sleep ?? sleep)(retryAfterMs);
         retryAfterMs = null;
       }
 
@@ -102,6 +102,16 @@ export class HttpTransport {
               message: lastError,
             };
           }
+          if (attempt < maxRetries && retryAfterMs !== null && retryAfterMs > MAX_IN_ATTEMPT_RETRY_AFTER_MS) {
+            return {
+              ok: false,
+              status,
+              transient: true,
+              retryAfterMs,
+              ...(lastCode ? { code: lastCode } : {}),
+              ...(lastError ? { message: lastError } : {}),
+            };
+          }
         }
       } catch (err) {
         lastError = err instanceof Error ? err.message : String(err);
@@ -133,15 +143,6 @@ export class HttpTransport {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function sleepUntil(delayMs: number, wait: (ms: number) => Promise<void>): Promise<void> {
-  let remaining = Math.max(0, delayMs);
-  while (remaining > 0) {
-    const slice = Math.min(remaining, MAX_SLEEP_SLICE_MS);
-    await wait(slice);
-    remaining -= slice;
-  }
 }
 
 async function readErrorBody(response: Response): Promise<{ code?: string; message?: string; retryAfterMs?: number }> {

@@ -679,14 +679,10 @@ export class BatchManager {
 
   private giveUpDrain(): void {
     const remaining = this.collectOutstandingEvents();
-    for (const event of remaining) {
-      this.counters.droppedDrainGiveUp++;
-      this.counters.droppedTotal++;
-      this.quarantine(event, 'drain_gave_up', undefined, undefined, 'Drain gave up after repeated delivery failures');
-    }
     // A bounded drain gives up on this invocation, but it must not turn an unknown delivery
     // outcome into an acknowledged empty queue. Keep the exact pending batches in memory/WAL so
     // a later explicit flush or a restarted persistent client can retry them byte-identically.
+    // Retained events are neither dropped nor quarantined: they can still be delivered later.
     if (this.inFlightBatch && !this.pendingBatches.includes(this.inFlightBatch)) {
       this.inFlightBatch.state = 'pending';
       this.pendingBatches.unshift(this.inFlightBatch);
@@ -702,7 +698,7 @@ export class BatchManager {
     );
     this.diagnostics.emit({
       code: 'drain_gave_up',
-      message: `Drain gave up after repeated delivery failures; ${remaining.length} event(s) quarantined`,
+      message: `Drain gave up after repeated delivery failures; ${remaining.length} event(s) retained for retry`,
       affectedEvents: remaining.length,
     });
   }

@@ -29,13 +29,12 @@ export function validateEvent(event: AnalyticsEvent): string | null {
   if (!(event.timestamp >= MIN_EPOCH_MS)) return 'timestamp not in epoch milliseconds';
   const entries = Object.entries(event.properties);
   if (entries.length > MAX_PROPERTIES) return `>${MAX_PROPERTIES} properties`;
-  let size = (event.userId?.length ?? 0) + event.anonymousId.length + event.event.length + 200;
   for (const [key, value] of entries) {
     if (key.length > MAX_KEY_LENGTH) return `key >${MAX_KEY_LENGTH} chars`;
     if (value.length > MAX_VALUE_LENGTH) return `value >${MAX_VALUE_LENGTH} chars`;
-    size += key.length + value.length;
   }
-  if (size > MAX_EVENT_BYTES) return `estimated size ${size}B >64KB`;
+  const size = new TextEncoder().encode(JSON.stringify(event)).byteLength;
+  if (size > MAX_EVENT_BYTES) return `serialized size ${size}B >64KB`;
   return null;
 }
 

@@ -163,7 +163,7 @@ export class StandaloneBatchManager {
       const mid = batch.payload.events.length >> 1;
       const left = this.child(batch, 0, mid);
       const right = this.child(batch, mid, batch.payload.events.length);
-      return (await this.deliver(left, options)) + (await this.deliver(right, options));
+      return (await this.deliverChild(left, options)) + (await this.deliverChild(right, options));
     }
     this.inFlightBatch = null;
     this.logger.warn(`Server rejected batch (HTTP ${result.status ?? 'unknown'}) — events dropped`);
@@ -190,6 +190,11 @@ export class StandaloneBatchManager {
       return this.result(batch.payload.events.length);
     }
     return this.result(0);
+  }
+
+  private deliverChild(batch: PendingBatch, options: StandaloneFlushOptions): Promise<number> {
+    this.inFlightBatch = batch;
+    return this.deliver(batch, options);
   }
 
   private child(parent: PendingBatch, start: number, end: number): PendingBatch {

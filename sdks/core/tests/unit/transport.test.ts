@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import { afterEach, describe, test, expect, mock, beforeEach } from 'bun:test';
 import { HttpTransport, parseRetryAfterMs } from '../../src/transport';
 import type { BatchPayload } from '../../src/types';
 import { createLogger } from '../../src/logger';
@@ -16,6 +16,10 @@ describe('HttpTransport', () => {
 
   beforeEach(() => {
     originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
   });
 
   function restoreFetch() {
@@ -308,7 +312,7 @@ describe('HttpTransport', () => {
       restoreFetch();
     });
 
-    test('honours a huge Retry-After in bounded 60s sleep slices', async () => {
+    test('returns a huge Retry-After to the batch manager without blocking', async () => {
       const sleeps: number[] = [];
       let fetchCount = 0;
       globalThis.fetch = mock(async () => {
@@ -319,13 +323,13 @@ describe('HttpTransport', () => {
         return new Response('OK', { status: 200 });
       }) as any;
 
-      await makeTransport(async ms => {
+      const result = await makeTransport(async ms => {
         sleeps.push(ms);
       }).send(makePayload());
 
-      expect(fetchCount).toBe(2);
-      expect(sleeps).toHaveLength(60);
-      expect(sleeps.every(ms => ms === 60_000)).toBe(true);
+      expect(fetchCount).toBe(1);
+      expect(sleeps).toHaveLength(0);
+      expect(result).toMatchObject({ ok: false, status: 429, transient: true, retryAfterMs: 3_600_000 });
 
       restoreFetch();
     });

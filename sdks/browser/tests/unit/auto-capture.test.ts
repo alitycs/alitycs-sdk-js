@@ -224,6 +224,8 @@ describe('AutoCapture pushState/replaceState tracking', () => {
     capturingHandler({ href: 'https://example.test/search?email=jane@example.com&q=shoes&reply=me@corp.test' });
     // Ordinary URLs pass through untouched.
     capturingHandler({ href: 'https://example.test/pricing?plan=pro' });
+    // URL credentials and fragments can carry secrets and are always removed.
+    capturingHandler({ href: 'https://user:secret@example.test/private?plan=pro#access_token=token' });
     // Oversized hrefs are truncated.
     capturingHandler({ href: `https://example.test/path?blob=${'x'.repeat(2000)}` });
 
@@ -231,6 +233,7 @@ describe('AutoCapture pushState/replaceState tracking', () => {
       undefined,
       'https://example.test/search?q=shoes',
       'https://example.test/pricing?plan=pro',
+      'https://example.test/private?plan=pro',
       // 500-char cap minus the 31-char prefix.
       expect.stringMatching(/^https:\/\/example\.test\/path\?blob=x{469}$/),
     ]);

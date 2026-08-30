@@ -104,9 +104,27 @@ describe('EventPersistence', () => {
     expect(loaded.queued.map(item => item.event.eventId)).toEqual(['event-0', 'event-1']);
     expect(loaded.truncatedEvents).toBe(2);
 
-    const expired = staleReload(storage, 20_000, { maxRestoredAgeMs: 5_000 }).load();
+    // Reopen after the prior reader's five-second writer lease has expired.
+    const expired = staleReload(storage, 22_000, { maxRestoredAgeMs: 5_000 }).load();
     expect(expired.queued).toHaveLength(0);
     expect(expired.pausedUntil).toBeUndefined();
+    expect(expired.truncatedEvents).toBe(4);
+  });
+
+  test('counts expired events removed from pending batches', () => {
+    const storage = new MemoryEventStorage();
+    const first = new EventPersistence({ storage }, ENDPOINT, API_KEY, () => 10_000);
+    first.load();
+    first.appendBatch({
+      batchId: 'batch_aged',
+      sentAt: 9_500,
+      events: [makeEvent('expired'), makeEvent('fresh')],
+      enqueuedAt: [1_000, 9_500],
+    });
+
+    const loaded = staleReload(storage, 16_000, { maxRestoredAgeMs: 8_000 }).load();
+    expect(loaded.pending.flatMap(batch => batch.events).map(event => event.eventId)).toEqual(['fresh']);
+    expect(loaded.truncatedEvents).toBe(1);
   });
 
   test('live foreign writers enter memory-only contention mode and stale writers can be adopted', () => {
@@ -151,5 +169,20 @@ describe('EventPersistence', () => {
     expect(storage.getItem(persistence.key)).toContain('pending');
     persistence.delete();
     expect(storage.getItem(persistence.key)).toBeNull();
+  });
+
+  test('disabling an oversized log removes stale replay state', () => {
+    const storage = new MemoryEventStorage();
+    const persistence = new EventPersistence({ storage, maxPersistedBytes: 500 }, ENDPOINT, API_KEY, () => 1_000);
+    persistence.load();
+    persistence.appendBatch({
+      batchId: 'batch_oversized',
+      sentAt: 1_000,
+      events: [{ ...makeEvent('large'), properties: { payload: 'x'.repeat(1_000) } }],
+    });
+
+    expect(persistence.isEnabled).toBe(false);
+    expect(storage.getItem(persistence.key)).toBeNull();
+    expect(staleReload(storage, 10_000).load().pending).toHaveLength(0);
   });
 });

@@ -4,8 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Official open-source JavaScript and TypeScript SDKs for sending product-analytics events to
-[Alitycs](https://alitycs.com). This repository is a Bun workspace containing the universal SDK,
-the browser SDK, and the lightweight browser loader.
+[Alitycs](https://alitycs.com). This repository is a Bun workspace containing universal, browser,
+server, React, and Next.js SDKs plus the lightweight browser loader.
 
 ## Packages
 
@@ -15,10 +15,13 @@ the browser SDK, and the lightweight browser loader.
 | [`@alitycs/browser`](sdks/browser)                 | Browsers                          | Core capabilities plus optional DOM/page autocapture, lifecycle flushing, and a GA4 compatibility bridge            |
 | [`@alitycs/browser-snippet`](sdks/browser-snippet) | Browser script tag                | A small loader that queues calls and loads the browser SDK asynchronously                                           |
 | [`@alitycs/server`](sdks/server)                   | Node.js, Bun (servers)            | Stateless per-call identity tracking with aliases, person traits, batching, and delivery outcomes                    |
+| [`@alitycs/react`](sdks/react)                     | React 18 and 19                    | Provider and hooks over the browser SDK with SSR- and hydration-safe client ownership                               |
+| [`@alitycs/nextjs`](sdks/nextjs)                   | Next.js App and Pages Routers     | React provider, router page tracking, and server-side helpers                                                        |
 
-All packages are currently version `1.0.1`. Versioned, installable package archives are attached to
-[GitHub Releases](https://github.com/alitycs/alitycs-sdk-js/releases). Public npm publication is
-prepared by the release process but is not advertised until the `@alitycs` npm packages exist.
+`@alitycs/core`, `@alitycs/browser`, and `@alitycs/browser-snippet` are published to npm at `1.0.3`.
+The new server and framework packages are source-complete in this branch and will be published by a
+subsequent release. Versioned archives are also attached to
+[GitHub Releases](https://github.com/alitycs/alitycs-sdk-js/releases).
 
 ## Quick start
 
@@ -79,6 +82,11 @@ not call the tenant-scoped analytics read API.
 
 The canonical payload contract is [event schema v0.5.0](specs/event-schema.json). See the
 [API reference](docs/API.md) and individual package READMEs for details.
+
+Every producer must send `timestamp` as Unix epoch milliseconds (`Date.now()` scale). External
+producers migrating from epoch seconds must multiply by 1,000 before ingestion; the shared
+[timestamp conformance fixtures](specs/timestamp-conformance.json) cover both accepted
+millisecond and rejected second-precision values.
 
 ## Delivery reliability
 

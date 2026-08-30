@@ -48,7 +48,9 @@ here before a version tag is created.
   requests. Batching/retry/bisection are reused from core; calls drain by default
   (`drainPerCall: false` opts out).
 - `specs/event-schema.json` 0.5.0: documents the reserved identify-type event names and their
-  property encodings.
+  property encodings, and rejects second-precision timestamps. External producers must migrate
+  Unix-second values by multiplying them by 1,000 before sending events; shared fixtures cover
+  accepted `Date.now()`-scale milliseconds and rejected seconds.
 
 ### Changed
 

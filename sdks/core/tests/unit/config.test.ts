@@ -28,6 +28,19 @@ describe('resolveAlitycsConfig', () => {
     expect(resolved.overflowPolicy).toBe('drop-oldest');
   });
 
+  test('honors persistence supplied by adapter defaults', () => {
+    const storage = new MemoryEventStorage();
+    const resolved = resolveAlitycsConfig({ apiKey: 'key' }, { persistence: { storage } });
+
+    expect(resolved.persistence).toEqual({ storage });
+  });
+
+  test('rejects non-positive batching settings for every adapter', () => {
+    expect(() => resolveAlitycsConfig({ apiKey: 'key', flushSize: 0 })).toThrow('must be positive numbers');
+    expect(() => resolveAlitycsConfig({ apiKey: 'key', maxQueueSize: Number.NaN })).toThrow('must be positive numbers');
+    expect(() => resolveAlitycsConfig({ apiKey: 'key', flushInterval: -1 })).toThrow('must be positive numbers');
+  });
+
   test('rejects blank API keys', () => {
     expect(() => resolveAlitycsConfig({ apiKey: ' ' })).toThrow('apiKey is required');
   });

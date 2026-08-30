@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { installDom, startCaptureServer, uninstallDom, type CaptureServerHandle } from './helpers';
 
 installDom();
@@ -68,6 +68,11 @@ beforeEach(() => {
   listeners.clear();
   routerState.asPath = '/';
   capture = startCaptureServer();
+});
+
+afterEach(async () => {
+  rtl.cleanup();
+  await capture.stop();
 });
 
 interface Harness {

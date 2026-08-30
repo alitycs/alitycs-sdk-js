@@ -29,6 +29,11 @@ function redactHref(href: string): string | undefined {
     const value = url.searchParams.get(key) ?? '';
     if (/^email$/i.test(key) || EMAIL_PATTERN.test(value)) url.searchParams.delete(key);
   }
+  // Credentials and fragments routinely carry passwords, OAuth tokens, or
+  // router-local state. None of them belong in click telemetry.
+  url.username = '';
+  url.password = '';
+  url.hash = '';
   const serialized = url.toString();
   return serialized.substring(0, MAX_HREF_LENGTH);
 }

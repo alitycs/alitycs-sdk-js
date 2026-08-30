@@ -61,7 +61,8 @@ describe('SSR safety', () => {
     const tree = createElement(
       AlitycsProvider,
       { apiKey: 'pk_test' },
-      createElement('main', null, 'content')
+      createElement('main', null, 'content'),
+      createElement(ClientProbe)
     );
 
     // Server HTML first — rendered with no DOM present.

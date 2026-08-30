@@ -7,7 +7,9 @@ import { captureClient, installDom, uninstallDom } from './helpers';
 
 installDom();
 afterAll(uninstallDom);
+const ambientFetch = globalThis.fetch;
 afterEach(async () => {
+  globalThis.fetch = ambientFetch;
   cleanup();
   // Spies on BrowserAlitycs.init would otherwise accumulate calls across tests.
   mock.restore();
@@ -105,7 +107,6 @@ describe('AlitycsProvider', () => {
 
   test('StrictMode mount/unmount/mount keeps the SAME live client', async () => {
     const initSpy = spyOn(BrowserAlitycs, 'init');
-    const originalFetch = globalThis.fetch;
     const batches: Array<{ events?: Array<{ event: string }> }> = [];
     globalThis.fetch = mock(async (_url: any, init: any) => {
       batches.push(JSON.parse(String(init.body)));
@@ -150,7 +151,6 @@ describe('AlitycsProvider', () => {
     expect(shutdownCalls).toBe(1);
     expect(client.isShutdown).toBe(true);
 
-    globalThis.fetch = originalFetch;
   });
 
   test('simultaneous providers with the same config share one client until all unmount', async () => {

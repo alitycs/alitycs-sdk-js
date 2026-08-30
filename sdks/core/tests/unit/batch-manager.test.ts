@@ -705,8 +705,11 @@ describe('BatchManager', () => {
     // Every round failed, but drain gave up instead of looping forever.
     expect(transport.sent.length).toBeGreaterThanOrEqual(3);
     expect(bm.pending).toBe(1);
-    expect(bm.stats()).toMatchObject({ droppedDrainGiveUp: 1, droppedTotal: 1 });
-    expect(bm.quarantinedEvents()[0]).toMatchObject({ reason: 'drain_gave_up' });
+    expect(bm.stats()).toMatchObject({ droppedDrainGiveUp: 0, droppedTotal: 0 });
+    expect(bm.quarantinedEvents()).toHaveLength(0);
+
+    await bm.flush();
+    expect(bm.pending).toBe(1);
   });
 
   test('legacy transports that return nothing are treated as delivered', async () => {

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import type { ReactNode } from 'react';
 import { installDom, startCaptureServer, uninstallDom, withoutGlobals, type CaptureServerHandle } from './helpers';
 
@@ -55,6 +55,11 @@ beforeEach(() => {
   suspendSearchParams = false;
   mock.module('next/navigation', navigationMock);
   capture = startCaptureServer();
+});
+
+afterEach(async () => {
+  rtl.cleanup();
+  await capture.stop();
 });
 
 interface Harness {

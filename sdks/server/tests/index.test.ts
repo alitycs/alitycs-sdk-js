@@ -192,6 +192,26 @@ describe("AlitycsServer", () => {
     await sdk.shutdown();
   });
 
+  test("a buffered duplicate reports the still-pending original", async () => {
+    const sdk = AlitycsServer.init({
+      apiKey: "test-key",
+      drainPerCall: false,
+    });
+
+    await sdk.track({ anonymousId: "a" }, "webhook_received", undefined, {
+      dedupeKey: "wh_buffered",
+    });
+    const duplicate = await sdk.track(
+      { anonymousId: "a" },
+      "webhook_received",
+      undefined,
+      { dedupeKey: "wh_buffered" },
+    );
+
+    expect(duplicate).toEqual({ status: "partial", delivered: 0, pending: 1 });
+    await sdk.shutdown();
+  });
+
   test("drainPerCall:false buffers until an explicit flush", async () => {
     const sdk = AlitycsServer.init({ apiKey: "test-key", drainPerCall: false });
 
@@ -204,6 +224,12 @@ describe("AlitycsServer", () => {
     expect(sentPayloads.flatMap((payload) => payload.events).length).toBe(2);
 
     await sdk.shutdown();
+  });
+
+  test("rejects non-positive batching settings", () => {
+    expect(() =>
+      AlitycsServer.init({ apiKey: "test-key", maxQueueSize: 0 }),
+    ).toThrow("must be positive numbers");
   });
 
   test("drainPerCall drains concurrent calls as one delivery sequence", async () => {

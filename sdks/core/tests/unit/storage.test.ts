@@ -33,4 +33,21 @@ describe('event storage', () => {
   test('selectEventStorage returns null when no browser storage is available', () => {
     expect(selectEventStorage()).toBeNull();
   });
+
+  test('selectEventStorage degrades safely when localStorage access throws', () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new DOMException('Blocked', 'SecurityError');
+      },
+    });
+
+    try {
+      expect(selectEventStorage()).toBeNull();
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis, 'localStorage', descriptor);
+      else delete (globalThis as { localStorage?: unknown }).localStorage;
+    }
+  });
 });

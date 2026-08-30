@@ -42,9 +42,6 @@ export class Alitycs {
   private shutDown = false;
 
   protected constructor(config: ResolvedConfig) {
-    if (!(config.flushSize >= 1) || !(config.maxQueueSize >= 1) || !(config.flushInterval >= 1)) {
-      throw new Error('flushSize, maxQueueSize, and flushInterval must be positive numbers');
-    }
     this.config = config;
     this.logger = createLogger(config.debug);
     this.diagnostics = new DiagnosticsHub(config.onDiagnostics, this.logger);
@@ -135,6 +132,19 @@ export class Alitycs {
   reset(): void {
     this.userId = undefined;
     this.sessionManager.reset();
+  }
+
+  /** Adapter-only identity access that does not emit an identify event. */
+  protected get actingUserIdForAdapter(): string | undefined {
+    return this.userId;
+  }
+
+  /** Adapter-only identity mutation for request-scoped wrappers. */
+  protected set actingUserIdForAdapter(userId: string | undefined) {
+    if (this.userId === userId) return;
+    this.userId = userId;
+    if (userId === undefined) this.sessionManager.getSession().userId = undefined;
+    else this.sessionManager.setUserId(userId);
   }
 
   page(name?: string, properties?: Record<string, unknown>, options?: EventOptions): void {
