@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import { STRICT_SEMVER_SOURCE, isStrictSemVer } from '../../../scripts/strict-semver';
 import { DEFAULT_SDK_URL } from '../src/config';
 
-const EXPECTED_DEFAULT_SDK_URL = 'https://cdn.jsdelivr.net/npm/@alitycs/browser@1.0.2/dist/browser.min.js';
+const EXPECTED_DEFAULT_SDK_URL = 'https://cdn.jsdelivr.net/npm/@alitycs/browser@1.0.3/dist/browser.min.js';
 
 describe('CDN default', () => {
   test('is an exact-version npm CDN URL, never a floating range', () => {
@@ -20,10 +20,10 @@ describe('CDN default', () => {
   });
 
   test('rejects malformed and ambiguous semantic versions', () => {
-    expect(isStrictSemVer('1.0.2')).toBe(true);
+    expect(isStrictSemVer('1.0.3')).toBe(true);
     expect(isStrictSemVer('1.0.3-rc.1+build.7')).toBe(true);
-    expect(isStrictSemVer('1.0.2foo')).toBe(false);
-    expect(isStrictSemVer('1.0.2/other')).toBe(false);
+    expect(isStrictSemVer('1.0.3foo')).toBe(false);
+    expect(isStrictSemVer('1.0.3/other')).toBe(false);
     expect(isStrictSemVer('1.0.0.1')).toBe(false);
     expect(isStrictSemVer('01.0.0')).toBe(false);
     expect(isStrictSemVer('1.0.0-01')).toBe(false);

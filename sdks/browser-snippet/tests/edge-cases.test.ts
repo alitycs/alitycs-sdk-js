@@ -8,7 +8,7 @@ import { SDKLoader } from '../src/loader';
 import { CallQueue } from '../src/queue';
 import type { SnippetConfig } from '../src/types';
 
-const EXPECTED_DEFAULT_SDK_URL = 'https://cdn.jsdelivr.net/npm/@alitycs/browser@1.0.2/dist/browser.min.js';
+const EXPECTED_DEFAULT_SDK_URL = 'https://cdn.jsdelivr.net/npm/@alitycs/browser@1.0.3/dist/browser.min.js';
 
 describe('Edge Cases and Error Scenarios', () => {
   let window: Window;

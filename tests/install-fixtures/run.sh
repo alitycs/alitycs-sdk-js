@@ -24,6 +24,18 @@ restore_manifest() {
 }
 trap restore_manifest EXIT
 
+pin_fixture_package_manager() {
+  local package_manager="$1"
+  cp "$fixture_pkg" "$fixture/package.json.orig"
+  node -e '
+    const fs = require("node:fs");
+    const [file, packageManager] = process.argv.slice(1);
+    const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+    manifest.packageManager = packageManager;
+    fs.writeFileSync(file, JSON.stringify(manifest, null, 2) + "\n");
+  ' "$fixture_pkg" "$package_manager"
+}
+
 run_pm() {
   local pm="$1"
   echo "== $pm =="
@@ -32,18 +44,17 @@ run_pm() {
     "$fixture/yarn.lock"
   case "$pm" in
     npm)   (cd "$fixture" && npm install --no-audit --no-fund --loglevel=error) ;;
-    pnpm)  (cd "$fixture" && pnpm install --no-frozen-lockfile) ;;
+    pnpm)
+      # Corepack and pnpm walk up to the Bun workspace manifest unless the
+      # clean-room fixture declares the exact package manager under test.
+      pin_fixture_package_manager "pnpm@11.23.0"
+      (cd "$fixture" && pnpm install --no-frozen-lockfile)
+      restore_manifest
+      ;;
     yarn)
       # Yarn 1 walks up to the repo root, adopts its non-yarn packageManager field
       # and refuses to run; pin a matching field for the install, then restore.
-      cp "$fixture_pkg" "$fixture/package.json.orig"
-      node -e '
-        const fs = require("node:fs");
-        const [file, yarnVersion] = process.argv.slice(1);
-        const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
-        manifest.packageManager = `yarn@${yarnVersion}`;
-        fs.writeFileSync(file, JSON.stringify(manifest, null, 2) + "\n");
-      ' "$fixture_pkg" "$(yarn --version)"
+      pin_fixture_package_manager "yarn@1.22.22"
       (cd "$fixture" && yarn install --force --ignore-engines --cache-folder .yarn-cache)
       restore_manifest
       ;;
